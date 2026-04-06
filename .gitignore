@@ -6,6 +6,7 @@
 .ninja_log
 build.ninja
 /CMakeCache.txt
+cmake-build/
 CMakeFiles/
 Debug/
 Win32/

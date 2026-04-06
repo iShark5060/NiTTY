@@ -19,6 +19,7 @@
 #include "putty.h"
 #include "misc.h"
 #include "dialog.h"
+#include "nitty_config_theme.h"
 
 #include <commctrl.h>
 
@@ -1836,22 +1837,60 @@ bool winctrl_handle_command(struct dlgparam *dp, UINT msg,
 
     if (msg == WM_DRAWITEM) {
         /*
-         * Owner-draw request for a panel title.
+         * Owner-draw request for a panel title (see paneltitle()).
+         * EDGE_ETCHED reads as a bright frame on dark mode; match the
+         * dialog background with no etched border when apps use dark theme.
          */
         LPDRAWITEMSTRUCT di = (LPDRAWITEMSTRUCT) lParam;
         HDC hdc = di->hDC;
         RECT r = di->rcItem;
-        SIZE s;
 
         SetMapMode(hdc, MM_TEXT);      /* ensure logical units == pixels */
 
-        GetTextExtentPoint32(hdc, (char *)c->data,
-                             strlen((char *)c->data), &s);
-        DrawEdge(hdc, &r, EDGE_ETCHED, BF_ADJUST | BF_RECT);
-        TextOut(hdc,
-                r.left + (r.right-r.left-s.cx)/2,
-                r.top + (r.bottom-r.top-s.cy)/2,
-                (char *)c->data, strlen((char *)c->data));
+        if (nitty_config_theme_apps_use_dark()) {
+            /*
+             * Flat fill + single dark gray stroke: readable structure without
+             * DrawEdge(EDGE_ETCHED), which draws a bright “double” frame on
+             * dark backgrounds. Group boxes and other controls keep their own
+             * themed / subclassed borders unchanged.
+             */
+            const COLORREF bg = RGB(32, 32, 32);
+            const COLORREF stroke = RGB(76, 76, 76);
+            HBRUSH br = CreateSolidBrush(bg);
+            RECT rfill = r;
+            RECT rtext = r;
+
+            FillRect(hdc, &rfill, br);
+            DeleteObject(br);
+
+            {
+                HPEN pen = CreatePen(PS_SOLID, 1, stroke);
+                HPEN oldp = (HPEN)SelectObject(hdc, pen);
+                HBRUSH oldb = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+
+                RoundRect(hdc, rfill.left, rfill.top, rfill.right - 1,
+                          rfill.bottom - 1, 5, 5);
+                SelectObject(hdc, oldp);
+                SelectObject(hdc, oldb);
+                DeleteObject(pen);
+            }
+
+            InflateRect(&rtext, -4, -2);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            DrawTextA(hdc, (char *)c->data, (int)strlen((char *)c->data), &rtext,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        } else {
+            SIZE s;
+
+            GetTextExtentPoint32(hdc, (char *)c->data,
+                                 strlen((char *)c->data), &s);
+            DrawEdge(hdc, &r, EDGE_ETCHED, BF_ADJUST | BF_RECT);
+            TextOut(hdc,
+                    r.left + (r.right-r.left-s.cx)/2,
+                    r.top + (r.bottom-r.top-s.cy)/2,
+                    (char *)c->data, strlen((char *)c->data));
+        }
 
         return true;
     }
@@ -2344,6 +2383,42 @@ void dlg_listbox_select(dlgcontrol *ctrl, dlgparam *dp, int index)
            !c->ctrl->listbox.multisel);
     msg = (c->ctrl->listbox.height != 0 ? LB_SETCURSEL : CB_SETCURSEL);
     SendDlgItemMessage(dp->hwnd, c->base_id+1, msg, index, 0);
+}
+
+char *dlg_listbox_gettext(dlgcontrol *ctrl, dlgparam *dp, int index)
+{
+    struct winctrl *c = dlg_findbyctrl(dp, ctrl);
+    int len;
+    char *ret;
+
+    assert(c &&
+           (c->ctrl->type == CTRL_LISTBOX ||
+            (c->ctrl->type == CTRL_EDITBOX &&
+             c->ctrl->editbox.has_list)));
+    if (index < 0)
+        return NULL;
+
+    if (c->ctrl->type == CTRL_LISTBOX && c->ctrl->listbox.height != 0) {
+        len = SendDlgItemMessage(dp->hwnd, c->base_id+1, LB_GETTEXTLEN,
+                                 (WPARAM)index, 0);
+        if (len == LB_ERR)
+            return NULL;
+        ret = snewn(len + 1, char);
+        SendDlgItemMessage(dp->hwnd, c->base_id+1, LB_GETTEXT,
+                           (WPARAM)index, (LPARAM)ret);
+        ret[len] = '\0';
+        return ret;
+    } else {
+        len = SendDlgItemMessage(dp->hwnd, c->base_id+1, CB_GETLBTEXTLEN,
+                                 (WPARAM)index, 0);
+        if (len == CB_ERR)
+            return NULL;
+        ret = snewn(len + 1, char);
+        SendDlgItemMessage(dp->hwnd, c->base_id+1, CB_GETLBTEXT,
+                           (WPARAM)index, (LPARAM)ret);
+        ret[len] = '\0';
+        return ret;
+    }
 }
 
 void dlg_text_set(dlgcontrol *ctrl, dlgparam *dp, char const *text)

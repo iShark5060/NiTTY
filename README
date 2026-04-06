@@ -2,8 +2,9 @@ NiTTY — source README
 =====================
 
 NiTTY is a fork of PuTTY with a refreshed Windows UI and extra
-session/window features. For an overview, credits (PuTTY and KiTTY),
-and GitHub-oriented documentation, see README.md in this directory.
+session/window features. For an overview, credits (PuTTY, KiTTY, and
+win32-darkmodelib as a theming reference), and GitHub-oriented
+documentation, see README.md in this directory.
 
 Building uses CMake. From the source root:
 

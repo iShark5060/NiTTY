@@ -1006,6 +1006,8 @@ void ui_set_state(HWND hwnd, struct MainDlgState *state, int status)
         }
         break;
     }
+    if (state->theme.inited)
+        nitty_config_theme_apply_children(hwnd, &state->theme);
 }
 
 /*
@@ -1835,6 +1837,32 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                                  SSH_KEYTYPE_SSH2, NULL, k);
 
             SetTimer(hwnd, DEMO_SCREENSHOT_TIMER_ID, TICKSPERSEC, NULL);
+        }
+
+        {
+            static const int param_ids[] = {
+                IDC_TYPESTATIC,
+                IDC_KEYSSH1, IDC_KEYSSH2RSA, IDC_KEYSSH2DSA,
+                IDC_KEYSSH2ECDSA, IDC_KEYSSH2EDDSA,
+                IDC_BITSSTATIC, IDC_BITS,
+                IDC_ECCURVESTATIC, IDC_ECCURVE,
+                IDC_EDCURVESTATIC, IDC_EDCURVE,
+                IDC_NOTHINGSTATIC,
+            };
+            int i;
+            for (i = 0; i < lenof(param_ids); i++) {
+                HWND ctl = GetDlgItem(hwnd, param_ids[i]);
+                if (ctl) {
+                    RECT sr;
+                    int dy = (param_ids[i] == IDC_TYPESTATIC) ? 4 : 12;
+                    GetWindowRect(ctl, &sr);
+                    POINT pt = {sr.left, sr.top};
+                    ScreenToClient(hwnd, &pt);
+                    MoveWindow(ctl, pt.x, pt.y + dy,
+                               sr.right - sr.left, sr.bottom - sr.top,
+                               TRUE);
+                }
+            }
         }
 
         return 1;

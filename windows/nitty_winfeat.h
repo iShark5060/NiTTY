@@ -23,6 +23,13 @@ UINT nitty_taskbar_created_message(void);
 void nitty_sync_preferred_app_mode(void);
 
 /*
+ * Per-window hook (uxtheme #133): use dark-mode scrollbars / NC chrome for this
+ * HWND. Call on multiline edits etc. when stripping visual styles but still
+ * using the system scrollbar (NiTTYgen public key, About readonly text).
+ */
+void nitty_allow_dark_mode_for_window(HWND hwnd, bool enable);
+
+/*
  * Windows 10+ / 11: title bar dark/light to match Settings, Mica-style backdrop
  * when supported, and Explorer-themed non-client scrollbar (WS_VSCROLL) to
  * match Win11 / Settings. Safe no-ops on older OS or if APIs are unavailable.

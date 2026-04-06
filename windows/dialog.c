@@ -350,26 +350,66 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
     return 0;
 }
 
+static void nitty_about_licence_theme_cleanup(HWND hwnd)
+{
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th) {
+        nitty_config_theme_free(th);
+        sfree(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
+    }
+}
+
 static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam)
 {
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
-        char *str = dupprintf("%s Licence", appname);
+        char *str;
+
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
+        str = dupprintf("%s Licence", appname);
         SetWindowText(hwnd, str);
         sfree(str);
         SetDlgItemText(hwnd, IDA_TEXT, LICENCE_TEXT("\r\n\r\n"));
+        MakeDlgItemBorderless(hwnd, IDA_TEXT);
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
+        {
+            HWND ed = GetDlgItem(hwnd, IDA_TEXT);
+            RECT rc;
+            SendMessage(ed, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                        MAKELPARAM(6, 6));
+            GetClientRect(ed, &rc);
+            InflateRect(&rc, -6, -4);
+            SendMessage(ed, EM_SETRECT, 0, (LPARAM)&rc);
+        }
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         return 1;
       }
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
           case IDCANCEL:
+            nitty_about_licence_theme_cleanup(hwnd);
             EndDialog(hwnd, 1);
             return 0;
         }
         return 0;
       case WM_CLOSE:
+        nitty_about_licence_theme_cleanup(hwnd);
         EndDialog(hwnd, 1);
         return 0;
     }
@@ -380,9 +420,19 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
                                   WPARAM wParam, LPARAM lParam)
 {
     char *str;
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
 
     switch (msg) {
       case WM_INITDIALOG: {
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
         str = dupprintf("About %s", appname);
         SetWindowText(hwnd, str);
         sfree(str);
@@ -395,12 +445,26 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         SetDlgItemText(hwnd, IDA_TEXT, text);
         MakeDlgItemBorderless(hwnd, IDA_TEXT);
         sfree(text);
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
+        {
+            HWND ed = GetDlgItem(hwnd, IDA_TEXT);
+            RECT rc;
+            SendMessage(ed, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                        MAKELPARAM(6, 6));
+            GetClientRect(ed, &rc);
+            InflateRect(&rc, -6, -4);
+            SendMessage(ed, EM_SETRECT, 0, (LPARAM)&rc);
+        }
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         return 1;
       }
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
           case IDCANCEL:
+            nitty_about_licence_theme_cleanup(hwnd);
             EndDialog(hwnd, true);
             return 0;
           case IDA_LICENCE:
@@ -420,6 +484,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         }
         return 0;
       case WM_CLOSE:
+        nitty_about_licence_theme_cleanup(hwnd);
         EndDialog(hwnd, true);
         return 0;
     }
@@ -482,13 +547,14 @@ Filename *dialog_box_demo_screenshot_filename = NULL;
  *
  * NITTY_CFG_DLG_WIDTH_DLU must match IDD_MAINBOX / IDD_CA_CONFIG width in
  * putty-common.rc2. Other horizontals scale from the upstream 400 DLU-wide
- * layout (tree 100 wide; panel from 108; stdbase right inset 295).
+ * layout (tree ~140 DLU wide vs upstream 100; panel inset scales; stdbase right inset 295).
  *
  * NITTY_CFG_TREE_BTM_DLU is where the tree view ends and buttons begin.
  * NITTY_CFG_PANEL_BTM_DLU is the bottom of the panel area.
  */
 #define NITTY_CFG_DLG_WIDTH_DLU 275
-#define NITTY_CFG_TREE_W_DLU ((100 * NITTY_CFG_DLG_WIDTH_DLU + 200) / 400)
+/* Wider than upstream 100/400 so nested paths fit without a scrollbar */
+#define NITTY_CFG_TREE_W_DLU ((140 * NITTY_CFG_DLG_WIDTH_DLU + 200) / 400)
 #define NITTY_CFG_PANEL_LEFT_DLU (3 + NITTY_CFG_TREE_W_DLU + 5)
 #define NITTY_CFG_STDBASE_RIGHT_DLU ((295 * NITTY_CFG_DLG_WIDTH_DLU + 200) / 400)
 
@@ -567,7 +633,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
                                       WS_CHILD | WS_VISIBLE |
                                       WS_TABSTOP | TVS_HASLINES |
                                       TVS_DISABLEDRAGDROP | TVS_HASBUTTONS
-                                      | TVS_LINESATROOT |
+                                      | TVS_LINESATROOT | TVS_TRACKSELECT |
                                       TVS_SHOWSELALWAYS, r.left, r.top,
                                       r.right - r.left, r.bottom - r.top,
                                       hwnd, (HMENU) IDCX_TREEVIEW, hinst,
@@ -686,6 +752,13 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
 
       case WM_NOTIFY:
+        if (pds->treeview &&
+            ((LPNMHDR)lParam)->hwndFrom == pds->treeview &&
+            ((LPNMHDR)lParam)->code == NM_CUSTOMDRAW) {
+            LRESULT lr;
+            if (nitty_config_theme_tree_notify(&pds->theme, lParam, &lr))
+                return lr;
+        }
         if (LOWORD(wParam) == IDCX_TREEVIEW &&
             ((LPNMHDR) lParam)->code == TVN_SELCHANGED) {
             /*

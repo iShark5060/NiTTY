@@ -8,6 +8,9 @@
 
 #include <windows.h>
 
+/* Settings → Personalization → Colors → Apps (same as immersive dark chrome). */
+bool nitty_config_theme_apps_use_dark(void);
+
 typedef struct nitty_config_theme {
     bool inited;
     bool dark;
@@ -33,5 +36,12 @@ void nitty_config_theme_apply_children(HWND dlg, const nitty_config_theme *t);
  */
 bool nitty_config_theme_ctlcolor(nitty_config_theme *t, HWND dlg, UINT msg,
                                  WPARAM wParam, LPARAM lParam, LRESULT *out);
+
+/*
+ * Config dialog: TreeView NM_CUSTOMDRAW (selection/hover) for dark mode.
+ * Returns true if *out should be returned from the dialog proc.
+ */
+bool nitty_config_theme_tree_notify(nitty_config_theme *t, LPARAM lParam,
+                                    LRESULT *out);
 
 #endif

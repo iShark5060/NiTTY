@@ -660,30 +660,53 @@ static void printerbox_handler(dlgcontrol *ctrl, dlgparam *dlg,
 {
     Conf *conf = (Conf *)data;
     if (event == EVENT_REFRESH) {
-        int nprinters, i;
+        int nprinters, i, nitems, sel;
         printer_enum *pe;
         const char *printer;
 
         dlg_update_start(ctrl, dlg);
-        /*
-         * Some backends may wish to disable the drop-down list on
-         * this edit box. Be prepared for this.
-         */
-        if (ctrl->editbox.has_list) {
-            dlg_listbox_clear(ctrl, dlg);
-            dlg_listbox_add(ctrl, dlg, PRINTER_DISABLED_STRING);
-            pe = printer_start_enum(&nprinters);
-            for (i = 0; i < nprinters; i++)
-                dlg_listbox_add(ctrl, dlg, printer_get_name(pe, i));
-            printer_finish_enum(pe);
-        }
+        dlg_listbox_clear(ctrl, dlg);
+        dlg_listbox_add(ctrl, dlg, PRINTER_DISABLED_STRING);
+        pe = printer_start_enum(&nprinters);
+        for (i = 0; i < nprinters; i++)
+            dlg_listbox_add(ctrl, dlg, printer_get_name(pe, i));
+        printer_finish_enum(pe);
+
         printer = conf_get_str(conf, CONF_printer);
         if (!printer)
             printer = PRINTER_DISABLED_STRING;
-        dlg_editbox_set(ctrl, dlg, printer);
+
+        nitems = nprinters + 1;
+        sel = 0;
+        for (i = 0; i < nitems; i++) {
+            char *item = dlg_listbox_gettext(ctrl, dlg, i);
+
+            if (item && !strcmp(item, printer)) {
+                sel = i;
+                sfree(item);
+                break;
+            }
+            sfree(item);
+        }
+        /*
+         * Preserve a configured printer name that is not in the current
+         * enumeration (e.g. offline or renamed) as an extra list entry.
+         */
+        if (i >= nitems && strcmp(printer, PRINTER_DISABLED_STRING)) {
+            dlg_listbox_add(ctrl, dlg, printer);
+            sel = nitems;
+        }
+        dlg_listbox_select(ctrl, dlg, sel);
         dlg_update_done(ctrl, dlg);
     } else if (event == EVENT_VALCHANGE) {
-        char *printer = dlg_editbox_get(ctrl, dlg);
+        int ix = dlg_listbox_index(ctrl, dlg);
+        char *printer;
+
+        if (ix < 0)
+            return;
+        printer = dlg_listbox_gettext(ctrl, dlg, ix);
+        if (!printer)
+            return;
         if (!strcmp(printer, PRINTER_DISABLED_STRING))
             printer[0] = '\0';
         conf_set_str(conf, CONF_printer, printer);
@@ -2053,9 +2076,9 @@ void setup_config_box(struct controlbox *b, bool midsession,
                       "Force off", I(FORCE_OFF));
 
     s = ctrl_getset(b, "Terminal", "printing", "Remote-controlled printing");
-    ctrl_combobox(s, "Printer to send ANSI printer output to:", 'p', 100,
+    ctrl_droplist(s, "Printer to send ANSI printer output to:", 'p', 100,
                   HELPCTX(terminal_printing),
-                  printerbox_handler, P(NULL), P(NULL));
+                  printerbox_handler, P(NULL));
 
     /*
      * The Terminal/Keyboard panel.

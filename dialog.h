@@ -584,6 +584,11 @@ int dlg_listbox_getid(dlgcontrol *ctrl, dlgparam *dp, int index);
 int dlg_listbox_index(dlgcontrol *ctrl, dlgparam *dp);
 bool dlg_listbox_issel(dlgcontrol *ctrl, dlgparam *dp, int index);
 void dlg_listbox_select(dlgcontrol *ctrl, dlgparam *dp, int index);
+/*
+ * Text for list item / combo list item at index. Caller must sfree result.
+ * Returns NULL if index is invalid or on error.
+ */
+char *dlg_listbox_gettext(dlgcontrol *ctrl, dlgparam *dp, int index);
 void dlg_text_set(dlgcontrol *ctrl, dlgparam *dp, char const *text);
 void dlg_filesel_set(dlgcontrol *ctrl, dlgparam *dp, Filename *fn);
 Filename *dlg_filesel_get(dlgcontrol *ctrl, dlgparam *dp);

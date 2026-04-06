@@ -802,6 +802,78 @@ bool dlg_listbox_issel(dlgcontrol *ctrl, dlgparam *dp, int index)
     return false;                      /* placate dataflow analysis */
 }
 
+char *dlg_listbox_gettext(dlgcontrol *ctrl, dlgparam *dp, int index)
+{
+    struct uctrl *uc = dlg_find_byctrl(dp, ctrl);
+
+    assert(uc->ctrl->type == CTRL_EDITBOX ||
+           uc->ctrl->type == CTRL_LISTBOX);
+
+    if (index < 0)
+        return NULL;
+
+#if !GTK_CHECK_VERSION(2,4,0)
+    if (uc->menu) {
+        GList *children;
+        GtkWidget *item;
+        GtkWidget *label;
+        const gchar *t;
+
+        children = gtk_container_children(GTK_CONTAINER(uc->menu));
+        item = GTK_WIDGET(g_list_nth_data(children, index));
+        g_list_free(children);
+        if (!item)
+            return NULL;
+        label = gtk_bin_get_child(GTK_BIN(item));
+        t = gtk_label_get_text(GTK_LABEL(label));
+        return dupstr(t);
+    }
+#endif
+#if GTK_CHECK_VERSION(2,4,0)
+    if (uc->combo) {
+        GtkTreeModel *model =
+            gtk_combo_box_get_model(GTK_COMBO_BOX(uc->combo));
+        GtkTreeIter iter;
+        GtkTreePath *path;
+        gchar *tmp = NULL;
+        char *ret;
+
+        path = gtk_tree_path_new_from_indices(index, -1);
+        if (!gtk_tree_model_get_iter(model, &iter, path)) {
+            gtk_tree_path_free(path);
+            return NULL;
+        }
+        gtk_tree_path_free(path);
+        gtk_tree_model_get(model, &iter, 1, &tmp, -1);
+        ret = dupstr(tmp);
+        g_free(tmp);
+        return ret;
+    }
+#endif
+#if GTK_CHECK_VERSION(2,0,0)
+    if (uc->treeview && uc->listmodel) {
+        GtkTreePath *path;
+        GtkTreeIter iter;
+        gchar *tmp = NULL;
+        char *ret;
+
+        path = gtk_tree_path_new_from_indices(index, -1);
+        if (!gtk_tree_model_get_iter(GTK_TREE_MODEL(uc->listmodel), &iter,
+                                     path)) {
+            gtk_tree_path_free(path);
+            return NULL;
+        }
+        gtk_tree_path_free(path);
+        gtk_tree_model_get(GTK_TREE_MODEL(uc->listmodel), &iter, 1, &tmp, -1);
+        ret = dupstr(tmp);
+        g_free(tmp);
+        return ret;
+    }
+#endif
+    unreachable("bad control type in dlg_listbox_gettext");
+    return NULL;
+}
+
 void dlg_listbox_select(dlgcontrol *ctrl, dlgparam *dp, int index)
 {
     struct uctrl *uc = dlg_find_byctrl(dp, ctrl);

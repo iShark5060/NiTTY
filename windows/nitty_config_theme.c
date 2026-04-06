@@ -10,11 +10,15 @@
  *     full GDI control: Static labels, radio/check buttons.
  *   - Subclass group boxes and push buttons to owner-paint frame/border/text
  *     in the correct colours.
- *   - Keep DarkMode_Explorer on edits, combos, lists, tree/list views.
+ *   - Keep DarkMode_Explorer on ALL Edit/ComboBox/ListBox controls so that
+ *     scrollbars are themed dark.  Read-only edits send WM_CTLCOLORSTATIC
+ *     (not WM_CTLCOLOREDIT); the ctlcolor handler paints them with the
+ *     edit brush.
  */
 
 #include "putty.h"
 #include "nitty_config_theme.h"
+#include "nitty_winfeat.h"
 
 #include <commctrl.h>
 #include <string.h>
@@ -31,7 +35,7 @@
 
 /* ---- registry helpers ---- */
 
-static bool apps_use_dark_mode(void)
+bool nitty_config_theme_apps_use_dark(void)
 {
     HKEY key;
     DWORD value = 1;
@@ -82,7 +86,7 @@ void nitty_config_theme_init(nitty_config_theme *t)
     nitty_config_theme_free(t);
     memset(t, 0, sizeof(*t));
 
-    t->dark = apps_use_dark_mode();
+    t->dark = nitty_config_theme_apps_use_dark();
     t->clr_accent = read_dwm_accent();
 
     if (t->dark) {
@@ -208,10 +212,9 @@ static LRESULT CALLBACK nitty_btn_subclass(
              * PuTTY creates group boxes AFTER their children (endbox),
              * so the group box is above them in Z-order. We must NOT
              * FillRect the interior — that would cover every label,
-             * edit, and radio inside. Only draw the frame + title.
-             *
-             * Use GetDC (unclipped) instead of BeginPaint because
-             * the update region may exclude the border area.
+             * edit, and radio inside. Draw a single subtle stroke
+             * (same RGB as owner-draw panel titles in controls.c) plus
+             * title text with a notch over the top edge.
              */
             PAINTSTRUCT ps;
             BeginPaint(hwnd, &ps);
@@ -233,15 +236,18 @@ static LRESULT CALLBACK nitty_btn_subclass(
             if (text[0])
                 GetTextExtentPoint32A(hdc, text, (int)strlen(text), &sz);
 
-            int yt = sz.cy / 2;
-            HPEN pen = CreatePen(PS_SOLID, 1, RGB(100, 100, 100));
-            HPEN oldp = (HPEN)SelectObject(hdc, pen);
-            HBRUSH oldb = (HBRUSH)SelectObject(hdc,
-                                               GetStockObject(NULL_BRUSH));
-            RoundRect(hdc, rc.left, yt, rc.right - 1, rc.bottom - 1, 6, 6);
-            SelectObject(hdc, oldp);
-            SelectObject(hdc, oldb);
-            DeleteObject(pen);
+            {
+                const COLORREF stroke = RGB(76, 76, 76);
+                int yt = sz.cy / 2;
+                HPEN pen = CreatePen(PS_SOLID, 1, stroke);
+                HPEN oldp = (HPEN)SelectObject(hdc, pen);
+                HBRUSH oldb = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+
+                RoundRect(hdc, rc.left, yt, rc.right - 1, rc.bottom - 1, 6, 6);
+                SelectObject(hdc, oldp);
+                SelectObject(hdc, oldb);
+                DeleteObject(pen);
+            }
 
             if (text[0]) {
                 int tx = rc.left + 9;
@@ -447,45 +453,82 @@ static LRESULT CALLBACK nitty_edit_subclass(
 
     if (msg == WM_PAINT) {
         LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
-
-        nitty_overpaint_border(hwnd);
-
         char cls[64];
-        if (GetClassNameA(hwnd, cls, sizeof(cls)) &&
-            !_stricmp(cls, "ComboBox")) {
-            LONG style = GetWindowLong(hwnd, GWL_STYLE);
-            if ((style & 0x0F) == CBS_DROPDOWNLIST) {
-                RECT rc;
-                GetClientRect(hwnd, &rc);
-                int btnw = GetSystemMetrics(SM_CXVSCROLL);
-                RECT textr = {rc.left + 1, rc.top + 1,
-                              rc.right - btnw, rc.bottom - 1};
+        bool isCombo = GetClassNameA(hwnd, cls, sizeof(cls)) &&
+            !_stricmp(cls, "ComboBox");
 
+        /*
+         * Combo: uxtheme draws light inner rules between the fake "edit",
+         * button, and outer border. Painting over the NC after WM_PAINT
+         * stacks an extra frame (see nitty_overpaint_border). Wipe the
+         * full client with the edit brush, then redraw field + chevron only
+         * — same idea as win32-darkmodelib owner-draw combo, without the
+         * GetWindowDC frame pass on top of the themed control.
+         */
+        if (!isCombo)
+            nitty_overpaint_border(hwnd);
+
+        if (isCombo) {
+            LONG style = GetWindowLong(hwnd, GWL_STYLE) & 0x0F;
+            COMBOBOXINFO cbi;
+
+            memset(&cbi, 0, sizeof(cbi));
+            cbi.cbSize = sizeof(cbi);
+            if (GetComboBoxInfo(hwnd, &cbi)) {
                 HDC hdc = GetDC(hwnd);
-                FillRect(hdc, &textr, t->br_edit);
+                RECT cr;
 
-                int idx = (int)SendMessage(hwnd, CB_GETCURSEL, 0, 0);
-                if (idx != CB_ERR) {
-                    int len = (int)SendMessage(
-                        hwnd, CB_GETLBTEXTLEN, idx, 0);
-                    if (len > 0 && len < 256) {
-                        char buf[256];
-                        SendMessageA(hwnd, CB_GETLBTEXT, idx,
-                                     (LPARAM)buf);
-                        HFONT hf = (HFONT)SendMessage(
-                            hwnd, WM_GETFONT, 0, 0);
-                        HFONT oldf = NULL;
-                        if (hf) oldf = (HFONT)SelectObject(hdc, hf);
-                        SetBkMode(hdc, TRANSPARENT);
-                        SetTextColor(hdc, t->clr_edit_text);
-                        RECT tr = {textr.left + 3, textr.top,
-                                   textr.right, textr.bottom};
-                        DrawTextA(hdc, buf, -1, &tr,
-                                  DT_LEFT | DT_VCENTER | DT_SINGLELINE |
-                                  DT_NOPREFIX);
-                        if (oldf) SelectObject(hdc, oldf);
+                GetClientRect(hwnd, &cr);
+                FillRect(hdc, &cr, t->br_edit);
+
+                if (style == CBS_DROPDOWNLIST) {
+                    int idx = (int)SendMessage(hwnd, CB_GETCURSEL, 0, 0);
+
+                    if (idx != CB_ERR) {
+                        int len = (int)SendMessage(
+                            hwnd, CB_GETLBTEXTLEN, idx, 0);
+                        if (len > 0 && len < 256) {
+                            char buf[256];
+                            HFONT hf = (HFONT)SendMessage(
+                                hwnd, WM_GETFONT, 0, 0);
+                            HFONT oldf = NULL;
+
+                            SendMessageA(hwnd, CB_GETLBTEXT, idx,
+                                         (LPARAM)buf);
+                            if (hf)
+                                oldf = (HFONT)SelectObject(hdc, hf);
+                            SetBkMode(hdc, TRANSPARENT);
+                            SetTextColor(hdc, t->clr_edit_text);
+                            {
+                                RECT tr = cbi.rcItem;
+
+                                tr.left += 3;
+                                DrawTextA(hdc, buf, -1, &tr,
+                                          DT_LEFT | DT_VCENTER |
+                                          DT_SINGLELINE | DT_NOPREFIX);
+                            }
+                            if (oldf)
+                                SelectObject(hdc, oldf);
+                        }
                     }
                 }
+
+                if (style == CBS_DROPDOWNLIST || style == CBS_DROPDOWN) {
+                    FillRect(hdc, &cbi.rcButton, t->br_btn);
+                    {
+                        int cx = (cbi.rcButton.left + cbi.rcButton.right) / 2;
+                        int cy = (cbi.rcButton.top + cbi.rcButton.bottom) / 2;
+                        HPEN pen = CreatePen(PS_SOLID, 1, t->clr_text_dim);
+                        HPEN op = (HPEN)SelectObject(hdc, pen);
+
+                        MoveToEx(hdc, cx - 3, cy - 1, NULL);
+                        LineTo(hdc, cx, cy + 2);
+                        LineTo(hdc, cx + 3, cy - 1);
+                        SelectObject(hdc, op);
+                        DeleteObject(pen);
+                    }
+                }
+
                 ReleaseDC(hwnd, hdc);
             }
         }
@@ -495,7 +538,10 @@ static LRESULT CALLBACK nitty_edit_subclass(
 
     if (msg == WM_NCPAINT) {
         LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
-        nitty_overpaint_border(hwnd);
+        char cls[64];
+
+        if (!GetClassNameA(hwnd, cls, sizeof(cls)) || _stricmp(cls, "ComboBox"))
+            nitty_overpaint_border(hwnd);
         return lr;
     }
 
@@ -518,6 +564,9 @@ static BOOL CALLBACK theme_child_cb(HWND hwnd, LPARAM lp)
 
     if (!t->dark) {
         SetWindowTheme(hwnd, L"Explorer", NULL);
+        if (!_stricmp(cls, "Edit") || !_stricmp(cls, "ComboBox") ||
+            !_stricmp(cls, "ListBox"))
+            nitty_allow_dark_mode_for_window(hwnd, false);
         if (!_stricmp(cls, "Button"))
             RemoveWindowSubclass(hwnd, nitty_btn_subclass,
                                  NITTY_BTN_SUBCLASS_ID);
@@ -543,12 +592,22 @@ static BOOL CALLBACK theme_child_cb(HWND hwnd, LPARAM lp)
         }
     } else if (!_stricmp(cls, "Edit") || !_stricmp(cls, "ComboBox") ||
                !_stricmp(cls, "ListBox")) {
+        /*
+         * DarkMode_Explorer gives dark scrollbars on all edits (including
+         * readonly multiline ones like the NiTTYgen public-key box).
+         * Read-only edits send WM_CTLCOLORSTATIC (not WM_CTLCOLOREDIT);
+         * nitty_config_theme_ctlcolor handles that with the edit brush,
+         * so the client area stays dark while Explorer theming skins the
+         * scrollbar.
+         */
         SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
+        nitty_allow_dark_mode_for_window(hwnd, true);
         SetWindowSubclass(hwnd, nitty_edit_subclass,
                           NITTY_EDIT_SUBCLASS_ID, (DWORD_PTR)t);
     } else if (!_stricmp(cls, "SysTreeView32") ||
                !_stricmp(cls, "SysListView32")) {
         SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
+        nitty_allow_dark_mode_for_window(hwnd, true);
         SetWindowSubclass(hwnd, nitty_edit_subclass,
                           NITTY_EDIT_SUBCLASS_ID, (DWORD_PTR)t);
     }
@@ -577,6 +636,54 @@ void nitty_config_theme_refresh(nitty_config_theme *t, HWND treeview, HWND dlg)
     }
 }
 
+bool nitty_config_theme_tree_notify(nitty_config_theme *t, LPARAM lParam,
+                                    LRESULT *out)
+{
+    NMTVCUSTOMDRAW *tvcd = (NMTVCUSTOMDRAW *)lParam;
+
+    if (!t || !t->inited || !t->dark || !out)
+        return false;
+
+    switch (tvcd->nmcd.dwDrawStage) {
+      case CDDS_PREPAINT:
+        *out = CDRF_NOTIFYITEMDRAW;
+        return true;
+      case CDDS_ITEMPREPAINT:
+        if (tvcd->nmcd.uItemState & CDIS_SELECTED) {
+            tvcd->clrText = t->clr_text;
+            tvcd->clrTextBk = RGB(45, 45, 45);
+            FillRect(tvcd->nmcd.hdc, &tvcd->nmcd.rc, t->br_edit);
+            *out = CDRF_NEWFONT | CDRF_NOTIFYPOSTPAINT;
+            return true;
+        }
+        if (tvcd->nmcd.uItemState & CDIS_HOT) {
+            tvcd->clrText = t->clr_text;
+            tvcd->clrTextBk = RGB(55, 55, 55);
+            FillRect(tvcd->nmcd.hdc, &tvcd->nmcd.rc, t->br_btn);
+            *out = CDRF_NEWFONT | CDRF_NOTIFYPOSTPAINT;
+            return true;
+        }
+        *out = CDRF_DODEFAULT;
+        return true;
+      case CDDS_ITEMPOSTPAINT:
+        if (tvcd->nmcd.uItemState & (CDIS_SELECTED | CDIS_HOT)) {
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(100, 100, 100));
+            HPEN old = (HPEN)SelectObject(tvcd->nmcd.hdc, pen);
+            HBRUSH ob = (HBRUSH)SelectObject(tvcd->nmcd.hdc, GetStockObject(NULL_BRUSH));
+            Rectangle(tvcd->nmcd.hdc, tvcd->nmcd.rc.left, tvcd->nmcd.rc.top,
+                      tvcd->nmcd.rc.right - 1, tvcd->nmcd.rc.bottom - 1);
+            SelectObject(tvcd->nmcd.hdc, old);
+            SelectObject(tvcd->nmcd.hdc, ob);
+            DeleteObject(pen);
+        }
+        *out = CDRF_DODEFAULT;
+        return true;
+      default:
+        break;
+    }
+    return false;
+}
+
 /* ---- WM_CTLCOLOR* handler ---- */
 
 bool nitty_config_theme_ctlcolor(nitty_config_theme *t, HWND dlg, UINT msg,
@@ -600,7 +707,21 @@ bool nitty_config_theme_ctlcolor(nitty_config_theme *t, HWND dlg, UINT msg,
         return true;
 
       case WM_CTLCOLORSTATIC:
-        if (!GetClassNameA(ctl, cls, lenof(cls)) || _stricmp(cls, "Static"))
+        if (!GetClassNameA(ctl, cls, lenof(cls)))
+            return false;
+        /*
+         * Read-only Edit controls send WM_CTLCOLORSTATIC, not
+         * WM_CTLCOLOREDIT.  Paint them with the edit brush so
+         * About/Licence text and NiTTYgen readonly fields go dark.
+         */
+        if (!_stricmp(cls, "Edit")) {
+            SetBkMode(hdc, OPAQUE);
+            SetBkColor(hdc, t->dark ? RGB(45, 45, 45) : RGB(255, 255, 255));
+            SetTextColor(hdc, t->clr_edit_text);
+            *out = (LRESULT)t->br_edit;
+            return true;
+        }
+        if (_stricmp(cls, "Static"))
             return false;
         style = GetWindowLong(ctl, GWL_STYLE);
         stype = style & 0x1F;

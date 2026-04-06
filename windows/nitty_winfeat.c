@@ -9,10 +9,14 @@
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <uxtheme.h>
+#include <commctrl.h>
+#include <string.h>
+#include <wchar.h>
 
 #include "putty-rc.h"
 
 #pragma comment(lib, "uxtheme.lib")
+#pragma comment(lib, "comctl32.lib")
 
 extern HINSTANCE hinst;
 
@@ -106,6 +110,273 @@ static void nitty_load_uxtheme_dark_helpers(void)
             GetProcAddress(ux, (LPCSTR)(UINT_PTR)104);
 }
 
+/*
+ * UAH (undocumented) menu-bar painting — same approach as win32-darkmodelib /
+ * UAHMenuBar. Only used when the window has an HMENU (e.g. NiTTYgen).
+ */
+#define WM_UAHDRAWMENU     0x0091
+#define WM_UAHDRAWMENUITEM 0x0092
+
+#define NITTY_UAH_SUBCLASS_ID 42007
+
+/* vsstyle.h MENU parts / BARITEM states (avoid SDK header coupling) */
+#define NITTY_MENU_BARITEM 7
+#define NITTY_MBI_NORMAL          1
+#define NITTY_MBI_HOT             2
+#define NITTY_MBI_PUSHED          3
+#define NITTY_MBI_DISABLED        4
+#define NITTY_MBI_DISABLEDHOT     5
+#define NITTY_MBI_DISABLEDPUSHED  6
+
+typedef union tag_UAHMENUITEMMETRICS {
+    struct {
+        DWORD cx;
+        DWORD cy;
+    } rgsizeBar[2];
+    struct {
+        DWORD cx;
+        DWORD cy;
+    } rgsizePopup[4];
+} UAHMENUITEMMETRICS;
+
+typedef struct tag_UAHMENUPOPUPMETRICS {
+    DWORD rgcx[4];
+    DWORD fUpdateMaxWidths : 2;
+} UAHMENUPOPUPMETRICS;
+
+typedef struct tag_UAHMENU {
+    HMENU hmenu;
+    HDC hdc;
+    DWORD dwFlags;
+} UAHMENU;
+
+typedef struct tag_UAHMENUITEM {
+    int iPosition;
+    UAHMENUITEMMETRICS umim;
+    UAHMENUPOPUPMETRICS umpm;
+} UAHMENUITEM;
+
+typedef struct tag_UAHDRAWMENUITEM {
+    DRAWITEMSTRUCT dis;
+    UAHMENU um;
+    UAHMENUITEM umi;
+} UAHDRAWMENUITEM;
+
+struct nitty_uah_data {
+    HTHEME theme;
+    HBRUSH br_menu;
+    HBRUSH br_hot;
+    HBRUSH br_sel;
+};
+
+static void nitty_uah_free_data(struct nitty_uah_data *d)
+{
+    if (!d)
+        return;
+    if (d->theme)
+        CloseThemeData(d->theme);
+    if (d->br_menu)
+        DeleteObject(d->br_menu);
+    if (d->br_hot)
+        DeleteObject(d->br_hot);
+    if (d->br_sel)
+        DeleteObject(d->br_sel);
+    sfree(d);
+}
+
+static void nitty_uah_paint_menubar_bg(HWND hwnd, HDC hdc, HBRUSH br)
+{
+    MENUBARINFO mbi;
+    RECT rcWindow, rcBar;
+
+    memset(&mbi, 0, sizeof(mbi));
+    mbi.cbSize = sizeof(mbi);
+    if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi))
+        return;
+    GetWindowRect(hwnd, &rcWindow);
+    rcBar = mbi.rcBar;
+    OffsetRect(&rcBar, -rcWindow.left, -rcWindow.top);
+    rcBar.top -= 1;
+    FillRect(hdc, &rcBar, br);
+}
+
+static void nitty_uah_draw_menu_bottom_line(HWND hwnd, HBRUSH br)
+{
+    MENUBARINFO mbi;
+    RECT rcClient, rcWindow, rcLine;
+    HDC hdc;
+
+    memset(&mbi, 0, sizeof(mbi));
+    mbi.cbSize = sizeof(mbi);
+    if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi))
+        return;
+    GetClientRect(hwnd, &rcClient);
+    MapWindowPoints(hwnd, NULL, (POINT *)&rcClient, 2);
+    GetWindowRect(hwnd, &rcWindow);
+    OffsetRect(&rcClient, -rcWindow.left, -rcWindow.top);
+    rcLine = rcClient;
+    rcLine.bottom = rcLine.top;
+    rcLine.top--;
+    hdc = GetWindowDC(hwnd);
+    FillRect(hdc, &rcLine, br);
+    ReleaseDC(hwnd, hdc);
+}
+
+static void nitty_uah_paint_menu_item(UAHDRAWMENUITEM *ud,
+                                      struct nitty_uah_data *d)
+{
+    wchar_t buf[MAX_PATH];
+    MENUITEMINFOW mii;
+    int bgst = NITTY_MBI_NORMAL;
+    int txst = NITTY_MBI_NORMAL;
+    RECT *rc = &ud->dis.rcItem;
+    HDC hdc = ud->um.hdc;
+    DWORD st = ud->dis.itemState;
+
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STRING;
+    mii.dwTypeData = buf;
+    mii.cch = MAX_PATH - 1;
+    if (!GetMenuItemInfoW(ud->um.hmenu, (UINT)ud->umi.iPosition, TRUE, &mii))
+        return;
+
+    if ((st & ODS_SELECTED))
+        bgst = txst = NITTY_MBI_PUSHED;
+    else if ((st & ODS_HOTLIGHT))
+        bgst = txst = ((st & ODS_INACTIVE) ? NITTY_MBI_DISABLEDHOT : NITTY_MBI_HOT);
+    else if ((st & ODS_GRAYED) || (st & ODS_DISABLED) || (st & ODS_INACTIVE))
+        bgst = txst = NITTY_MBI_DISABLED;
+
+    switch (bgst) {
+      case NITTY_MBI_NORMAL:
+      case NITTY_MBI_DISABLED:
+        FillRect(hdc, rc, d->br_menu);
+        break;
+      case NITTY_MBI_HOT:
+      case NITTY_MBI_DISABLEDHOT:
+        FillRect(hdc, rc, d->br_hot);
+        break;
+      case NITTY_MBI_PUSHED:
+      case NITTY_MBI_DISABLEDPUSHED:
+        FillRect(hdc, rc, d->br_sel);
+        break;
+      default:
+        if (d->theme)
+            DrawThemeBackground(d->theme, hdc, NITTY_MENU_BARITEM, bgst, rc,
+                                NULL);
+        break;
+    }
+
+    {
+        DTTOPTS opt;
+        COLORREF txc = RGB(255, 255, 255);
+
+        if (txst == NITTY_MBI_DISABLED || txst == NITTY_MBI_DISABLEDHOT ||
+            txst == NITTY_MBI_DISABLEDPUSHED)
+            txc = RGB(160, 160, 160);
+
+        if (d->theme) {
+            memset(&opt, 0, sizeof(opt));
+            opt.dwSize = sizeof(opt);
+            opt.dwFlags = DTT_TEXTCOLOR;
+            opt.crText = txc;
+            DrawThemeTextEx(d->theme, hdc, NITTY_MENU_BARITEM, txst, buf,
+                            (int)wcslen(buf),
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE |
+                                ((st & ODS_NOACCEL) ? DT_HIDEPREFIX : 0),
+                            rc, &opt);
+        } else {
+            UINT dt = DT_CENTER | DT_VCENTER | DT_SINGLELINE;
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, txc);
+            if (st & ODS_NOACCEL)
+                dt |= DT_HIDEPREFIX;
+            DrawTextW(hdc, buf, (int)wcslen(buf), rc, dt);
+        }
+    }
+}
+
+static LRESULT CALLBACK nitty_uah_menubar_subclass(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR subId, DWORD_PTR ref)
+{
+    struct nitty_uah_data *d = (struct nitty_uah_data *)ref;
+
+    (void)subId;
+
+    if (msg != WM_NCDESTROY && (!d || !GetMenu(hwnd)))
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+
+    switch (msg) {
+      case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, nitty_uah_menubar_subclass,
+                             NITTY_UAH_SUBCLASS_ID);
+        nitty_uah_free_data(d);
+        break;
+      case WM_UAHDRAWMENU: {
+        UAHMENU *p = (UAHMENU *)lParam;
+
+        nitty_uah_paint_menubar_bg(hwnd, p->hdc, d->br_menu);
+        return 0;
+      }
+      case WM_UAHDRAWMENUITEM: {
+        UAHDRAWMENUITEM *p = (UAHDRAWMENUITEM *)lParam;
+
+        if (!d->theme)
+            d->theme = OpenThemeData(hwnd, L"Menu");
+        nitty_uah_paint_menu_item(p, d);
+        return 0;
+      }
+      case WM_THEMECHANGED:
+      case WM_SETTINGCHANGE:
+        if (d->theme) {
+            CloseThemeData(d->theme);
+            d->theme = NULL;
+        }
+        break;
+      case WM_NCACTIVATE:
+      case WM_NCPAINT: {
+        LRESULT lr = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+        nitty_uah_draw_menu_bottom_line(hwnd, d->br_menu);
+        return lr;
+      }
+      default:
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+static void nitty_uah_menubar_detach(HWND hwnd)
+{
+    if (hwnd)
+        RemoveWindowSubclass(hwnd, nitty_uah_menubar_subclass,
+                             NITTY_UAH_SUBCLASS_ID);
+}
+
+static void nitty_uah_menubar_attach(HWND hwnd)
+{
+    struct nitty_uah_data *d;
+
+    if (!hwnd || !GetMenu(hwnd) || !nitty_windows_apps_prefer_dark())
+        return;
+
+    nitty_uah_menubar_detach(hwnd);
+
+    d = snew(struct nitty_uah_data);
+    memset(d, 0, sizeof(*d));
+    d->br_menu = CreateSolidBrush(RGB(32, 32, 32));
+    d->br_hot = CreateSolidBrush(RGB(60, 60, 60));
+    d->br_sel = CreateSolidBrush(RGB(45, 45, 45));
+    if (!d->br_menu || !d->br_hot || !d->br_sel) {
+        nitty_uah_free_data(d);
+        return;
+    }
+    SetWindowSubclass(hwnd, nitty_uah_menubar_subclass, NITTY_UAH_SUBCLASS_ID,
+                      (DWORD_PTR)d);
+}
+
 void nitty_sync_preferred_app_mode(void)
 {
     bool dark = nitty_windows_apps_prefer_dark();
@@ -127,6 +398,15 @@ void nitty_sync_preferred_app_mode(void)
         nitty_pRefreshImmersiveColorPolicyState();
 }
 
+void nitty_allow_dark_mode_for_window(HWND hwnd, bool enable)
+{
+    if (!hwnd)
+        return;
+    nitty_load_uxtheme_dark_helpers();
+    if (nitty_pAllowDarkModeForWindow)
+        nitty_pAllowDarkModeForWindow(hwnd, enable ? TRUE : FALSE);
+}
+
 void nitty_apply_win11_window_chrome(HWND hwnd)
 {
     BOOL dark_flag;
@@ -135,6 +415,8 @@ void nitty_apply_win11_window_chrome(HWND hwnd)
 
     if (!hwnd)
         return;
+
+    nitty_uah_menubar_detach(hwnd);
 
     dark = nitty_windows_apps_prefer_dark();
 
@@ -180,6 +462,8 @@ void nitty_apply_win11_window_chrome(HWND hwnd)
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", NULL);
     SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    if (dark && GetMenu(hwnd))
+        nitty_uah_menubar_attach(hwnd);
     DrawMenuBar(hwnd);
     RedrawWindow(hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE);
 }

@@ -2,7 +2,7 @@
 
 NiTTY is a **Windows-first SSH, Telnet, and serial terminal client** based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. It keeps PuTTY’s reliability and protocol support while refreshing the experience with a modern dark-themed configuration UI and a set of quality-of-life features inspired by community forks—especially [KiTTY](https://www.9bis.net/kitty/).
 
-If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem.
+If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem. Windows dark-mode behaviour and control theming draw on ideas documented in **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** (see below).
 
 ---
 
@@ -23,6 +23,7 @@ NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; i
 |--------|------|
 | **[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)** | Original design, protocols, security model, and the majority of the source tree. Copyright © 1997– Simon Tatham and contributors. |
 | **[KiTTY](https://www.9bis.net/kitty/)** | A long-running PuTTY fork that popularized many Windows UX and session features. NiTTY gratefully adopts ideas and compatibility hooks from that lineage (e.g. session script concepts and registry keyword patterns where noted in code). |
+| **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** | A C++ library for dark mode and themed Win32 controls. NiTTY does not ship it as a dependency, but its techniques (e.g. undocumented UxTheme hooks, `WM_CTLCOLOR*` handling for read-only edits, scrollbar theming) informed the Windows configuration UI and related tooling. |
 
 Upstream PuTTY remains the reference for behaviour, security updates, and documentation unless this repository states otherwise. When reporting security-sensitive issues, consider whether they belong in **upstream PuTTY** first.
 
@@ -80,4 +81,5 @@ That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base6
 
 - PuTTY home: <https://www.chiark.greenend.org.uk/~sgtatham/putty/>
 - KiTTY: <https://www.9bis.net/kitty/>
+- win32-darkmodelib (theming reference): <https://github.com/ozone10/win32-darkmodelib>
 - CMake: <https://cmake.org/>
