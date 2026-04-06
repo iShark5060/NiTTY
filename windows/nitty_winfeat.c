@@ -483,6 +483,31 @@ UINT nitty_taskbar_created_message(void)
     return msg_taskbar_created;
 }
 
+int nitty_transparency_pct_to_alpha(int transparency_pct)
+{
+    if (transparency_pct <= 0)
+        return 0;
+    if (transparency_pct >= 100)
+        return 1;
+    return (255 * (100 - transparency_pct) + 50) / 100;
+}
+
+int nitty_alpha_to_transparency_pct(int alpha)
+{
+    int t;
+
+    if (alpha <= 0)
+        return 0;
+    if (alpha >= 255)
+        return 0;
+    t = ((255 - alpha) * 100 + 127) / 255;
+    if (t < 1)
+        t = 1;
+    if (t > 100)
+        t = 100;
+    return t;
+}
+
 void nitty_apply_transparency(HWND hwnd, Conf *conf)
 {
     int alpha = conf_get_int(conf, CONF_nitty_window_alpha);

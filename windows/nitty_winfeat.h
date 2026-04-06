@@ -39,6 +39,14 @@ void nitty_apply_win11_window_chrome(HWND hwnd);
 
 void nitty_apply_transparency(HWND hwnd, Conf *conf);
 
+/*
+ * Shared mapping for CONF_nitty_window_alpha (0 = layered off, 1-255 = LWA alpha)
+ * and UI "transparency %" (0 = off, 1-100 = more transparent). Used by the
+ * session config editbox and the Transparency context submenu.
+ */
+int nitty_transparency_pct_to_alpha(int transparency_pct);
+int nitty_alpha_to_transparency_pct(int alpha);
+
 bool nitty_handle_minimize_to_tray(struct WinGuiSeat *wgs, WPARAM wParam);
 void nitty_tray_notify(struct WinGuiSeat *wgs, LPARAM lParam);
 void nitty_tray_on_taskbar_created(struct WinGuiSeat *wgs);

@@ -91,6 +91,7 @@ struct WinGuiSeat {
 
     struct PopupMenu popup_menus[2];
     HMENU savedsess_menu;
+    HMENU nitty_transparency_menu;
 
     Conf *conf;
     LogContext *logctx;

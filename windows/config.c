@@ -9,6 +9,7 @@
 #include "putty.h"
 #include "dialog.h"
 #include "storage.h"
+#include "nitty_winfeat.h"
 
 static void about_handler(dlgcontrol *ctrl, dlgparam *dlg,
                           void *data, int event)
@@ -44,6 +45,36 @@ static void variable_pitch_handler(dlgcontrol *ctrl, dlgparam *dlg,
         dlg_checkbox_set(ctrl, dlg, !dlg_get_fixed_pitch_flag(dlg));
     } else if (event == EVENT_VALCHANGE) {
         dlg_set_fixed_pitch_flag(dlg, !dlg_checkbox_get(ctrl, dlg));
+    }
+}
+
+/*
+ * CONF_nitty_window_alpha remains 0-255 on disk. Editbox: transparency
+ * 0-100 (0 = layered off), same mapping as nitty_transparency_pct_to_alpha().
+ */
+static void nitty_window_transparency_percent_handler(dlgcontrol *ctrl, dlgparam *dlg,
+                                                    void *data, int event)
+{
+    Conf *conf = (Conf *)data;
+
+    if (event == EVENT_REFRESH) {
+        char str[80];
+        int alpha = conf_get_int(conf, CONF_nitty_window_alpha);
+        int pct = nitty_alpha_to_transparency_pct(alpha);
+
+        sprintf(str, "%d", pct);
+        dlg_editbox_set(ctrl, dlg, str);
+    } else if (event == EVENT_VALCHANGE) {
+        char *s = dlg_editbox_get(ctrl, dlg);
+        int pct = atoi(s);
+        sfree(s);
+
+        if (pct < 0)
+            pct = 0;
+        if (pct > 100)
+            pct = 100;
+        conf_set_int(conf, CONF_nitty_window_alpha,
+                     nitty_transparency_pct_to_alpha(pct));
     }
 }
 
@@ -391,9 +422,9 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, bool has_help,
      * NiTTY: scripts, transparency, tray, hyperlinks.
      */
     s = ctrl_getset(b, "NiTTY", "window", "NiTTY window options");
-    ctrl_editbox(s, "Window transparency (0 = off, 1-255 = alpha):", 't', 50,
+    ctrl_editbox(s, "Window transparency (0-100, 0 = off):", 't', 50,
                  HELPCTX(no_help),
-                 conf_editbox_handler, I(CONF_nitty_window_alpha), ED_INT);
+                 nitty_window_transparency_percent_handler, P(NULL), P(NULL));
     ctrl_checkbox(s, "Minimize to system tray instead of taskbar", 'm',
                   HELPCTX(no_help),
                   conf_checkbox_handler, I(CONF_nitty_minimize_to_tray));

@@ -52,6 +52,13 @@
 #define IDM_FULLSCREEN  0x0180
 #define IDM_COPY      0x0190
 #define IDM_PASTE     0x01A0
+#define IDM_TRANS_0   0x01B0
+#define IDM_TRANS_5   0x01C0
+#define IDM_TRANS_10  0x01D0
+#define IDM_TRANS_15  0x01E0
+#define IDM_TRANS_25  0x01F0
+#define IDM_TRANS_50  0x0210 /* 0x0200 is IDM_SPECIALSEP */
+#define IDM_TRANS_75  0x0220
 #define IDM_SPECIALSEP 0x0200
 
 #define IDM_SPECIAL_MIN 0x0400
@@ -62,6 +69,24 @@
 #define MENU_SAVED_STEP 16
 /* Maximum number of sessions on saved-session submenu */
 #define MENU_SAVED_MAX ((IDM_SAVED_MAX-IDM_SAVED_MIN) / MENU_SAVED_STEP)
+
+/*
+ * Transparency presets: percentages map via nitty_transparency_pct_to_alpha()
+ * (same as NiTTY → Window options).
+ */
+static const struct {
+    UINT id;
+    int transparency_pct;
+    const char *label;
+} nitty_transparency_presets[] = {
+    { IDM_TRANS_0, 0, "0% (opaque)" },
+    { IDM_TRANS_5, 5, "5%" },
+    { IDM_TRANS_10, 10, "10%" },
+    { IDM_TRANS_15, 15, "15%" },
+    { IDM_TRANS_25, 25, "25%" },
+    { IDM_TRANS_50, 50, "50%" },
+    { IDM_TRANS_75, 75, "75%" },
+};
 
 #define WM_IGNORE_CLIP (WM_APP + 2)
 #define WM_FULLSCR_ON_MAX (WM_APP + 3)
@@ -109,6 +134,9 @@ static void deinit_fonts(WinGuiSeat *wgs);
 static void set_input_locale(WinGuiSeat *wgs, HKL);
 static void update_savedsess_menu(WinGuiSeat *wgs);
 static void init_winfuncs(void);
+static void nitty_update_transparency_menu_checks(WinGuiSeat *wgs);
+static void nitty_apply_transparency_menu_cmd(WinGuiSeat *wgs, HWND hwnd,
+                                              UINT cmd);
 
 static bool is_full_screen(WinGuiSeat *wgs);
 static void make_full_screen(WinGuiSeat *wgs);
@@ -766,6 +794,16 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         get_sesslist(&sesslist, true);
         update_savedsess_menu(wgs);
 
+        {
+            int ti;
+            wgs->nitty_transparency_menu = CreatePopupMenu();
+            for (ti = 0; ti < (int)lenof(nitty_transparency_presets); ti++)
+                AppendMenu(wgs->nitty_transparency_menu,
+                            MF_STRING | MF_ENABLED,
+                            nitty_transparency_presets[ti].id,
+                            nitty_transparency_presets[ti].label);
+        }
+
         for (j = 0; j < lenof(wgs->popup_menus); j++) {
             m = wgs->popup_menus[j].menu;
 
@@ -785,6 +823,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             AppendMenu(m, (conf_get_int(wgs->conf, CONF_resize_action)
                            == RESIZE_DISABLED) ? MF_GRAYED : MF_ENABLED,
                        IDM_FULLSCREEN, "&Full Screen");
+            AppendMenu(m, MF_POPUP | MF_ENABLED,
+                       (UINT_PTR)wgs->nitty_transparency_menu,
+                       "&Transparency");
             AppendMenu(m, MF_SEPARATOR, 0, 0);
             if (has_help())
                 AppendMenu(m, MF_ENABLED, IDM_HELP, "&Help");
@@ -2214,6 +2255,48 @@ static void wm_size_resize_term(WinGuiSeat *wgs, LPARAM lParam)
     conf_set_int(wgs->conf, CONF_width, w);
 }
 
+static void nitty_update_transparency_menu_checks(WinGuiSeat *wgs)
+{
+    HMENU menu = wgs->nitty_transparency_menu;
+    int cur = conf_get_int(wgs->conf, CONF_nitty_window_alpha);
+    int cur_pct = nitty_alpha_to_transparency_pct(cur);
+    size_t i;
+    UINT check = (UINT)-1;
+
+    if (!menu)
+        return;
+
+    for (i = 0; i < lenof(nitty_transparency_presets); i++) {
+        if (cur_pct == nitty_transparency_presets[i].transparency_pct) {
+            check = nitty_transparency_presets[i].id;
+            break;
+        }
+    }
+
+    for (i = 0; i < lenof(nitty_transparency_presets); i++) {
+        UINT id = nitty_transparency_presets[i].id;
+        CheckMenuItem(menu, id, MF_BYCOMMAND |
+                      (id == check ? MF_CHECKED : MF_UNCHECKED));
+    }
+}
+
+static void nitty_apply_transparency_menu_cmd(WinGuiSeat *wgs, HWND hwnd,
+                                              UINT cmd)
+{
+    size_t i;
+
+    for (i = 0; i < lenof(nitty_transparency_presets); i++) {
+        if (nitty_transparency_presets[i].id == cmd) {
+            conf_set_int(
+                wgs->conf, CONF_nitty_window_alpha,
+                nitty_transparency_pct_to_alpha(
+                    nitty_transparency_presets[i].transparency_pct));
+            nitty_apply_transparency(hwnd, wgs->conf);
+            return;
+        }
+    }
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
                                 WPARAM wParam, LPARAM lParam)
 {
@@ -2257,6 +2340,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
             get_sesslist(&sesslist, false); /* free */
             get_sesslist(&sesslist, true);
             update_savedsess_menu(wgs);
+            return 0;
+        }
+        if ((HMENU)wParam == wgs->nitty_transparency_menu) {
+            nitty_update_transparency_menu_checks(wgs);
             return 0;
         }
         break;
@@ -2620,6 +2707,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
             break;
           case IDM_FULLSCREEN:
             flip_full_screen(wgs);
+            break;
+          case IDM_TRANS_0:
+          case IDM_TRANS_5:
+          case IDM_TRANS_10:
+          case IDM_TRANS_15:
+          case IDM_TRANS_25:
+          case IDM_TRANS_50:
+          case IDM_TRANS_75:
+            nitty_apply_transparency_menu_cmd(wgs, hwnd, (UINT)wParam);
             break;
           default:
             if (wParam >= IDM_SAVED_MIN && wParam < IDM_SAVED_MAX) {
