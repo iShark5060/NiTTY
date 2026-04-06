@@ -27,4 +27,15 @@ const char *nitty_portable_session_suffix(void);
 
 bool nitty_portable_ensure_dir(const char *dirpath);
 
+/*
+ * Pageant portable key list (requires [NiTTY] savemode=dir already).
+ * In nitty.ini, add:
+ *   [Pageant]
+ *   savemode=dir
+ *   PersistKeys=1
+ * Key paths are stored as UTF-8 under <configdir>\\Pageant\\pageant-keys.txt
+ */
+bool nitty_portable_pageant_persist_keys(void);
+const char *nitty_portable_pageant_keys_path(void);
+
 #endif

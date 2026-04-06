@@ -58,7 +58,7 @@ const struct BackendVtable *backend_vt_from_conf(Conf *conf)
 
 const wchar_t *get_app_user_model_id(void)
 {
-    return L"SimonTatham.Pterm";
+    return L"NiTTY.Nterm";
 }
 
 void gui_terminal_ready(HWND hwnd, Seat *seat, Backend *backend)

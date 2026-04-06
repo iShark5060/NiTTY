@@ -9,8 +9,9 @@ If you use NiTTY in research, documentation, or redistribution, please cite **Pu
 ## Why NiTTY?
 
 - **PuTTY’s core**: SSH, Telnet, Rlogin, SUPDUP, serial, Pageant, Plink, PuTTYgen workflow, and the same general configuration model.
-- **Refreshed UI**: Windows 11–style dark configuration dialogs, consistent theming across tools (including NiTTYgen), and polished window chrome where supported.
+- **Refreshed UI**: Windows 11–style dark configuration dialogs, consistent theming across tools (NiTTYgen, **Pageant**, and the terminal), and polished window chrome where supported.
 - **Portable & session-friendly**: Optional portable layout (ini + session files) in the spirit of KiTTY-style workflows.
+- **Windows terminal binary**: Built as **nterm.exe** with **nterm** / **ntermcfg** icons (PuTTY upstream uses the name **pterm** on Windows; NiTTY standardises on **nterm**).
 - **Extra window & session options**: Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage)—useful for automation without leaving the PuTTY family of tools.
 
 NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; it is an independent fork that builds on their work.
@@ -35,7 +36,7 @@ NiTTY uses **CMake** (3.x). From the repository root:
 
 ```bash
 cmake -S . -B build
-cmake --build build --config Release
+text box l
 ```
 
 On Windows with **Visual Studio**, use a generator you prefer, for example:
@@ -74,6 +75,16 @@ NiTTY can **store the SSH login password** in a saved session (the same `Passwor
 That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base64, keyed by the session name) before being saved. That makes it harder to accidentally copy a readable password out of a config export or a quick glance at a file.
 
 **Security warning:** this is **not encryption you should trust for secrecy**. The obfuscation can be **reversed** by anyone who can read the source or the running binary, or who controls the machine. Treat it as a **convenience and casual deterrent**, not protection against a motivated attacker. For real secrets, use SSH keys, a password manager, or another mechanism that matches your threat model.
+
+---
+
+## Pageant (Windows)
+
+- **Theming:** Pageant uses the same dark (or light) configuration style as NiTTY—subclassed controls, immersive dark title bar where supported, and consistent colours—so it does not look like a half-themed system dialog beside the rest of the suite.
+- **Portable key paths:** If you use directory-based portable config (`savemode=dir` in `nitty.ini`; see the sample file in the repo), you can optionally ask Pageant to reload a list of private key **files** on startup. Enable this under the `[Pageant]` section (`savemode=dir` + `PersistKeys=1`). Paths are stored in `<configdir>\Pageant\pageant-keys.txt` (UTF-8, one path per line) and updated when keys are added or removed.
+- **Passphrases are not saved:** That file—and this feature—stores **only paths** to key files (e.g. `.ppk`). **Passphrases are never written to disk** for persistence. Unlocked keys and remembered passphrases behave like stock Pageant: they live in memory for the running process (and are cleared when you use “forget passphrases” or exit), not in `pageant-keys.txt`.
+
+`nitty.ini` is only for portable/bootstrap flags and the small set of keys read by the portable layer; session colours, SSH options, and most behaviour still come from saved sessions or the registry—see comments in `nitty.ini` and `windows/nitty_portable.c`.
 
 ---
 

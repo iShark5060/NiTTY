@@ -18,6 +18,7 @@
 #include "storage.h"
 #include "dialog.h"
 #include "licence.h"
+#include "nitty_about.h"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -438,7 +439,8 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         sfree(str);
         char *buildinfo_text = buildinfo("\r\n");
         char *text = dupprintf(
-            "%s\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
+            "%s\r\n\r\n" NITTY_ABOUT_FORK_PARAGRAPH_WIN
+            "%s\r\n\r\n%s\r\n\r\n%s",
             appname, ver, buildinfo_text,
             "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
         sfree(buildinfo_text);
@@ -477,9 +479,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 
           case IDA_WEB:
             /* Load web browser */
-            ShellExecute(hwnd, "open",
-                         "https://www.chiark.greenend.org.uk/~sgtatham/putty/",
-                         0, 0, SW_SHOWDEFAULT);
+            ShellExecute(hwnd, "open", NITTY_HOME_URL, 0, 0, SW_SHOWDEFAULT);
             return 0;
         }
         return 0;

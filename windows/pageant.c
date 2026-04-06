@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <string.h>
 #include <ctype.h>
 #include <assert.h>
 #include <tchar.h>
@@ -20,6 +21,10 @@
 #include "pageant-rc.h"
 #include "storage.h"
 #include "nitty_portable.h"
+#include "nitty_config_theme.h"
+#include "nitty_winfeat.h"
+#include "nitty_about.h"
+#include "platform.h"
 
 #include <shellapi.h>
 
@@ -33,6 +38,8 @@
 #define WM_SYSTRAY2  (WM_APP + 7)
 
 #define APPNAME "Pageant"
+
+const char *const appname = APPNAME;
 
 /* Titles and class names for invisible windows. IPCWINTITLE and
  * IPCCLASSNAME are critical to backwards compatibility: WM_COPYDATA
@@ -56,6 +63,10 @@ static bool restrict_putty_acl = false;
 /* CWD for "add key" file requester. */
 static filereq_saved_dir *keypath = NULL;
 
+/* While loading pageant-keys.txt, do not rewrite that file (would truncate it
+ * under the still-open read FILE* and corrupt the load). */
+static bool pageant_persist_suppress_rewrite;
+
 /* From MSDN: In the WM_SYSCOMMAND message, the four low-order bits of
  * wParam are used by Windows, and should be masked off, so we shouldn't
  * attempt to store information in them. Hence all these identifiers have
@@ -73,6 +84,17 @@ static filereq_saved_dir *keypath = NULL;
 #define IDM_SESSIONS_BASE      0x1000
 #define IDM_SESSIONS_MAX       0x2000
 static int initial_menuitems_count;
+
+static void pageant_dialog_theme_cleanup(HWND hwnd)
+{
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th) {
+        nitty_config_theme_free(th);
+        sfree(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
+    }
+}
 
 /*
  * Print a modal (Really Bad) message box and perform a fatal exit.
@@ -110,6 +132,7 @@ struct PassphraseProcStruct {
     PageantClientDialogId *dlgid;
     char *passphrase;
     const char *comment;
+    nitty_config_theme theme;
 };
 
 /*
@@ -118,19 +141,35 @@ struct PassphraseProcStruct {
 static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam)
 {
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
-      case WM_INITDIALOG:
+      case WM_INITDIALOG: {
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
         SetDlgItemText(hwnd, IDC_LICENCE_TEXTBOX, LICENCE_TEXT("\r\n\r\n"));
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
         return 1;
+      }
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
           case IDCANCEL:
+            pageant_dialog_theme_cleanup(hwnd);
             EndDialog(hwnd, 1);
             return 0;
         }
         return 0;
       case WM_CLOSE:
+        pageant_dialog_theme_cleanup(hwnd);
         EndDialog(hwnd, 1);
         return 0;
     }
@@ -143,17 +182,33 @@ static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
 static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
                                   WPARAM wParam, LPARAM lParam)
 {
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
-        char *buildinfo_text = buildinfo("\r\n");
-        char *text = dupprintf(
-            "Pageant\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
-            ver, buildinfo_text,
-            "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
-        sfree(buildinfo_text);
-        SetDlgItemText(hwnd, IDC_ABOUT_TEXTBOX, text);
-        MakeDlgItemBorderless(hwnd, IDC_ABOUT_TEXTBOX);
-        sfree(text);
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
+        {
+            char *buildinfo_text = buildinfo("\r\n");
+            char *text = dupprintf(
+                "Pageant\r\n\r\n" NITTY_ABOUT_FORK_PARAGRAPH_WIN
+                "%s\r\n\r\n%s\r\n\r\n%s",
+                ver, buildinfo_text,
+                "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
+            sfree(buildinfo_text);
+            SetDlgItemText(hwnd, IDC_ABOUT_TEXTBOX, text);
+            MakeDlgItemBorderless(hwnd, IDC_ABOUT_TEXTBOX);
+            sfree(text);
+        }
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
         return 1;
       }
       case WM_COMMAND:
@@ -171,15 +226,16 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
             return 0;
           case IDC_ABOUT_WEBSITE:
             /* Load web browser */
-            ShellExecute(hwnd, "open",
-                         "https://www.chiark.greenend.org.uk/~sgtatham/putty/",
-                         0, 0, SW_SHOWDEFAULT);
+            ShellExecute(hwnd, "open", NITTY_HOME_URL, 0, 0, SW_SHOWDEFAULT);
             return 0;
         }
         return 0;
       case WM_CLOSE:
         aboutbox = NULL;
         DestroyWindow(hwnd);
+        return 0;
+      case WM_NCDESTROY:
+        pageant_dialog_theme_cleanup(hwnd);
         return 0;
     }
     return 0;
@@ -192,6 +248,12 @@ static void end_passphrase_dialog(HWND hwnd, INT_PTR result)
 {
     struct PassphraseProcStruct *p = (struct PassphraseProcStruct *)
         GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    if (!p)
+        return;
+
+    if (p->theme.inited)
+        nitty_config_theme_free(&p->theme);
 
     if (p->modal) {
         EndDialog(hwnd, result);
@@ -231,16 +293,24 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
 {
     struct PassphraseProcStruct *p;
 
-    if (msg == WM_INITDIALOG) {
-        p = (struct PassphraseProcStruct *) lParam;
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR) p);
-    } else {
-        p = (struct PassphraseProcStruct *)
-            GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (msg == WM_INITDIALOG)
+        p = (struct PassphraseProcStruct *)lParam;
+    else
+        p = (struct PassphraseProcStruct *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    if (p && p->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&p->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
     }
 
     switch (msg) {
       case WM_INITDIALOG: {
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)p);
+        memset(&p->theme, 0, sizeof(p->theme));
+        nitty_config_theme_init(&p->theme);
+
         if (p->modal)
             modal_passphrase_hwnd = hwnd;
 
@@ -272,6 +342,8 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
             if (item)
                 DestroyWindow(item);
         }
+        nitty_config_theme_apply_children(hwnd, &p->theme);
+        nitty_apply_win11_window_chrome(hwnd);
         return 0;
       }
       case WM_COMMAND:
@@ -487,13 +559,76 @@ void keylist_update(void)
                      ctx->enable_remove_controls);
         EnableWindow(GetDlgItem(keylist, IDC_KEYLIST_REENCRYPT),
                      ctx->enable_reencrypt_controls);
+        /*
+         * EnableWindow() can reset comctl/uxtheme state on a button that was
+         * disabled at dialog init, so the Remove control loses our empty-theme
+         * + subclass dark paint. Re-apply the same per-child setup as WM_INIT.
+         */
+        {
+            nitty_config_theme *kth =
+                (nitty_config_theme *)GetWindowLongPtr(keylist, GWLP_USERDATA);
+            if (kth && kth->inited)
+                nitty_config_theme_apply_children(keylist, kth);
+        }
     }
+}
+
+static void trim_keypath_line(char *s)
+{
+    size_t n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' ||
+                     s[n - 1] == ' ' || s[n - 1] == '\t'))
+        s[--n] = '\0';
+}
+
+static void pageant_persist_rewrite_from_agent(void)
+{
+    const char *path;
+    Filename *fnpath;
+    FILE *fp;
+    int i, n;
+    char *p;
+
+    if (!nitty_portable_pageant_persist_keys())
+        return;
+    path = nitty_portable_pageant_keys_path();
+    if (!path || !*path)
+        return;
+
+    fnpath = filename_from_utf8(path);
+    fp = f_open(fnpath, "w", false);
+    filename_free(fnpath);
+    if (!fp)
+        return;
+
+    fputs("# NiTTY Pageant: UTF-8 private key paths (one per line).\n", fp);
+
+    n = pageant_count_ssh1_keys();
+    for (i = 0; i < n; i++) {
+        p = pageant_nth_ssh1_key_disk_path(i);
+        if (p) {
+            fputs(p, fp);
+            fputc('\n', fp);
+            sfree(p);
+        }
+    }
+    n = pageant_count_ssh2_keys();
+    for (i = 0; i < n; i++) {
+        p = pageant_nth_ssh2_key_disk_path(i);
+        if (p) {
+            fputs(p, fp);
+            fputc('\n', fp);
+            sfree(p);
+        }
+    }
+    fclose(fp);
 }
 
 static void win_add_keyfile(Filename *filename, bool encrypted)
 {
-    char *err;
+    char *err = NULL;
     int ret;
+    bool added = false;
 
     /*
      * Try loading the key without a passphrase. (Or rather, without a
@@ -502,6 +637,7 @@ static void win_add_keyfile(Filename *filename, bool encrypted)
      */
     ret = pageant_add_keyfile(filename, NULL, &err, encrypted);
     if (ret == PAGEANT_ACTION_OK) {
+        added = true;
         goto done;
     } else if (ret == PAGEANT_ACTION_FAILURE) {
         goto error;
@@ -514,6 +650,7 @@ static void win_add_keyfile(Filename *filename, bool encrypted)
     while (1) {
         INT_PTR dlgret;
         struct PassphraseProcStruct pps;
+        memset(&pps, 0, sizeof(pps));
         pps.modal = true;
         pps.help_topic = NULL;         /* this dialog has no help button */
         pps.dlgid = NULL;
@@ -537,6 +674,7 @@ static void win_add_keyfile(Filename *filename, bool encrypted)
         burnstr(pps.passphrase);
 
         if (ret == PAGEANT_ACTION_OK) {
+            added = true;
             goto done;
         } else if (ret == PAGEANT_ACTION_FAILURE) {
             goto error;
@@ -544,11 +682,54 @@ static void win_add_keyfile(Filename *filename, bool encrypted)
     }
 
   error:
-    message_box(traywindow, err, APPNAME, MB_OK | MB_ICONERROR, false,
+    message_box(traywindow,
+                err ? err : "Unable to load the key (no error detail).",
+                APPNAME, MB_OK | MB_ICONERROR, false,
                 HELPCTXID(errors_cantloadkey));
   done:
+    if (added && !pageant_persist_suppress_rewrite)
+        pageant_persist_rewrite_from_agent();
     sfree(err);
     return;
+}
+
+static void pageant_persist_load_saved_keys(void)
+{
+    const char *path;
+    Filename *fnpath;
+    FILE *fp;
+    char line[4096];
+
+    if (!nitty_portable_pageant_persist_keys())
+        return;
+    path = nitty_portable_pageant_keys_path();
+    if (!path || !*path)
+        return;
+
+    fnpath = filename_from_utf8(path);
+    fp = f_open(fnpath, "r", false);
+    filename_free(fnpath);
+    if (!fp)
+        return;
+
+    pageant_persist_suppress_rewrite = true;
+    while (fgets(line, sizeof line, fp)) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        trim_keypath_line(p);
+        if (!*p || p[0] == '#')
+            continue;
+        {
+            Filename *kf = filename_from_utf8(p);
+            win_add_keyfile(kf, false);
+            filename_free(kf);
+        }
+    }
+    fclose(fp);
+    pageant_persist_suppress_rewrite = false;
+    pageant_persist_rewrite_from_agent();
+    pageant_forget_passphrases();
 }
 
 /*
@@ -589,6 +770,14 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
         {"MD5 including certificate", SSH_FPTYPE_MD5_CERT},
     };
 
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
         /*
@@ -616,6 +805,10 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 
         keylist = hwnd;
 
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
+
         int selection = 0;
         for (size_t i = 0; i < lenof(fptypes); i++) {
             SendDlgItemMessage(hwnd, IDC_KEYLIST_FPTYPE, CB_ADDSTRING,
@@ -627,6 +820,8 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
                            CB_SETCURSEL, 0, selection);
 
         keylist_update();
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
         return 0;
       }
       case WM_MEASUREITEM: {
@@ -660,10 +855,18 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
         } else {
             /* Draw the full text. */
             bool selected = (di->itemState & ODS_SELECTED);
-            COLORREF newfg = GetSysColor(
-                selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
-            COLORREF newbg = GetSysColor(
-                selected ? COLOR_HIGHLIGHT : COLOR_WINDOW);
+            nitty_config_theme *tth =
+                (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+            COLORREF newfg, newbg;
+            if (tth && tth->inited && tth->dark) {
+                newfg = tth->clr_text;
+                newbg = selected ? RGB(45, 45, 45) : RGB(40, 40, 40);
+            } else {
+                newfg = GetSysColor(
+                    selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
+                newbg = GetSysColor(
+                    selected ? COLOR_HIGHLIGHT : COLOR_WINDOW);
+            }
             COLORREF oldfg = SetTextColor(di->hDC, newfg);
             COLORREF oldbg = SetBkColor(di->hDC, newbg);
 
@@ -804,6 +1007,7 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 
                 sfree(selectedArray);
                 keylist_update();
+                pageant_persist_rewrite_from_agent();
             }
             return 0;
           case IDC_KEYLIST_HELP:
@@ -848,6 +1052,9 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
       case WM_CLOSE:
         keylist = NULL;
         DestroyWindow(hwnd);
+        return 0;
+      case WM_NCDESTROY:
+        pageant_dialog_theme_cleanup(hwnd);
         return 0;
     }
     return 0;
@@ -1025,6 +1232,7 @@ static bool ask_passphrase_common(PageantClientDialogId *dlgid,
     assert(!nonmodal_passphrase_hwnd);
 
     struct PassphraseProcStruct *pps = snew(struct PassphraseProcStruct);
+    memset(pps, 0, sizeof(*pps));
     pps->modal = false;
     pps->help_topic = WINHELP_CTX_pageant_deferred;
     pps->dlgid = dlgid;
@@ -1338,6 +1546,7 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
           case IDM_REMOVE_ALL:
             pageant_delete_all();
             keylist_update();
+            pageant_persist_rewrite_from_agent();
             break;
           case IDM_REENCRYPT_ALL:
             pageant_reencrypt_all();
@@ -1541,7 +1750,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     dll_hijacking_protection();
     enable_dit();
 
+    init_common_controls();
     hinst = inst;
+    nitty_winfeat_init();
 
     if (should_have_security()) {
         /*
@@ -1733,6 +1944,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
          * Initialise the cross-platform Pageant code.
          */
         pageant_init();
+
+        /*
+         * Portable NiTTY: load saved key paths from config (optional).
+         */
+        pageant_persist_load_saved_keys();
 
         /*
          * Set up a named-pipe listener.

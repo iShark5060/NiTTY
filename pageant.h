@@ -118,6 +118,13 @@ void pageant_make_keylist2(BinarySink *);
  */
 int pageant_count_ssh1_keys(void);
 int pageant_count_ssh2_keys(void);
+/*
+ * If the n-th key was loaded from a local file in this process, return a
+ * malloc'd copy of its UTF-8 path; otherwise NULL. Used for portable
+ * key-list persistence on Windows.
+ */
+char *pageant_nth_ssh1_key_disk_path(int index);
+char *pageant_nth_ssh2_key_disk_path(int index);
 bool pageant_delete_nth_ssh1_key(int i);
 bool pageant_delete_nth_ssh2_key(int i);
 bool pageant_reencrypt_nth_ssh2_key(int i);

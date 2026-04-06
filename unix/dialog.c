@@ -31,6 +31,7 @@
 #include "dialog.h"
 #include "tree234.h"
 #include "licence.h"
+#include "nitty_about.h"
 #include "ssh.h"
 
 #if GTK_CHECK_VERSION(2,0,0)
@@ -4026,7 +4027,7 @@ void about_box(void *window)
     {
         char *buildinfo_text = buildinfo("\n");
         char *label_text = dupprintf(
-            "%s\n\n%s\n\n%s\n\n%s",
+            "%s\n\n" NITTY_ABOUT_FORK_PARAGRAPH_UNIX "%s\n\n%s\n\n%s",
             appname, ver, buildinfo_text,
             "Copyright " SHORT_COPYRIGHT_DETAILS ". All rights reserved");
         w = gtk_label_new(label_text);

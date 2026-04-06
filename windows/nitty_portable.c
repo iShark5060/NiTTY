@@ -11,6 +11,9 @@
  * With savemode=dir, sessions, host keys, random seed, jumplist data, and
  * SSH host CA definitions are stored under the config directory (see code:
  * Sessions, SshHostKeys, SshHostCAs, Jumplist, putty.rnd).
+ *
+ * Optional [Pageant] savemode=dir + PersistKeys=1 enables Pageant to load
+ * and save a list of private key file paths (Pageant\\pageant-keys.txt).
  */
 
 #include <stdlib.h>
@@ -24,14 +27,18 @@
 
 #define NITTY_INI "nitty.ini"
 #define NITTY_SECTION "NiTTY"
+#define PAGEANT_SECTION "Pageant"
 
 static bool init_done;
 static bool dir_mode;
 
 static char *config_dir_override;
 
+static char nitty_ini_path[MAX_PATH];
 static char exe_dir[MAX_PATH];
 static char base_dir[MAX_PATH];
+static char pageant_subdir[MAX_PATH];
+static char pageant_keysfile[MAX_PATH];
 static char sessdir[MAX_PATH];
 static char sshkeysdir[MAX_PATH];
 static char jumplistdir[MAX_PATH];
@@ -64,6 +71,9 @@ void nitty_portable_init(void)
     init_done = true;
     dir_mode = false;
     exe_dir[0] = base_dir[0] = '\0';
+    nitty_ini_path[0] = '\0';
+    pageant_subdir[0] = '\0';
+    pageant_keysfile[0] = '\0';
     session_suffix[0] = '\0';
 
     if (config_dir_override) {
@@ -83,6 +93,9 @@ void nitty_portable_init(void)
         inipath[sizeof inipath - 1] = '\0';
         sfree(t);
     }
+
+    strncpy(nitty_ini_path, inipath, sizeof nitty_ini_path - 1);
+    nitty_ini_path[sizeof nitty_ini_path - 1] = '\0';
 
     GetPrivateProfileStringA(NITTY_SECTION, "savemode", "", mode, sizeof mode, inipath);
     trim_end(mode);
@@ -143,12 +156,58 @@ void nitty_portable_init(void)
         strncpy(seedpath, t, sizeof seedpath - 1);
         seedpath[sizeof seedpath - 1] = '\0';
         sfree(t);
+
+        t = dupcat(base_dir, "\\Pageant", NULL);
+        strncpy(pageant_subdir, t, sizeof pageant_subdir - 1);
+        pageant_subdir[sizeof pageant_subdir - 1] = '\0';
+        sfree(t);
+
+        t = dupcat(pageant_subdir, "\\pageant-keys.txt", NULL);
+        strncpy(pageant_keysfile, t, sizeof pageant_keysfile - 1);
+        pageant_keysfile[sizeof pageant_keysfile - 1] = '\0';
+        sfree(t);
     }
 
     nitty_portable_ensure_dir(sessdir);
     nitty_portable_ensure_dir(sshkeysdir);
     nitty_portable_ensure_dir(jumplistdir);
     nitty_portable_ensure_dir(cadir);
+    if (dir_mode && *pageant_subdir)
+        nitty_portable_ensure_dir(pageant_subdir);
+}
+
+static bool profile_truthy(const char *s)
+{
+    return stricmp(s, "1") == 0 || stricmp(s, "yes") == 0 ||
+           stricmp(s, "true") == 0 || stricmp(s, "on") == 0;
+}
+
+bool nitty_portable_pageant_persist_keys(void)
+{
+    char sm[64], pk[64];
+
+    nitty_portable_init();
+    if (!dir_mode || !*nitty_ini_path)
+        return false;
+
+    GetPrivateProfileStringA(PAGEANT_SECTION, "savemode", "", sm, sizeof sm,
+                             nitty_ini_path);
+    trim_end(sm);
+    if (stricmp(sm, "dir") != 0)
+        return false;
+
+    GetPrivateProfileStringA(PAGEANT_SECTION, "PersistKeys", "0", pk, sizeof pk,
+                             nitty_ini_path);
+    trim_end(pk);
+    return profile_truthy(pk);
+}
+
+const char *nitty_portable_pageant_keys_path(void)
+{
+    nitty_portable_init();
+    if (!dir_mode || !*pageant_keysfile)
+        return NULL;
+    return pageant_keysfile;
 }
 
 bool nitty_portable_dir_mode(void)

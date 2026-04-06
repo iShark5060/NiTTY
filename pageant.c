@@ -162,6 +162,12 @@ struct PageantPrivateKey {
         RSAKey *rkey;              /* if sort.priv.ssh_version == 1 */
         ssh_key *skey;             /* if sort.priv.ssh_version == 2 */
     };
+    /*
+     * If this key was loaded from a local disk file in this Pageant
+     * process, the UTF-8 pathname (for persistence / UI). Not used
+     * when talking to a remote agent.
+     */
+    strbuf *source_disk_path;
     strbuf *encrypted_key_file;
     /* encrypted_key_comment stores the comment belonging to the
      * encrypted key file. This is used when presenting deferred
@@ -218,6 +224,8 @@ static void pk_priv_free(PageantPrivateKey *priv)
     if (priv->sort.ssh_version == 2 && priv->skey) {
         ssh_key_free(priv->skey);
     }
+    if (priv->source_disk_path)
+        strbuf_free(priv->source_disk_path);
     if (priv->encrypted_key_file)
         strbuf_free(priv->encrypted_key_file);
     if (priv->encrypted_key_comment)
@@ -259,9 +267,13 @@ static strbuf *makeblob2base(ssh_key *key)
 
 static PageantPrivateKey *pub_to_priv(PageantPublicKey *pub)
 {
-    PageantPrivateKey *priv = find234(privkeytree, &pub->sort.priv, NULL);
-    assert(priv && "Public and private trees out of sync!");
-    return priv;
+    /*
+     * Must tolerate NULL: in release builds the old assert() was absent, so
+     * a failed lookup led to crashes in list_keys (extended identities) and
+     * elsewhere. A NULL here means pubkey/privkey trees disagree — callers
+     * should handle it defensively.
+     */
+    return find234(privkeytree, &pub->sort.priv, NULL);
 }
 
 static PageantPublicKey *findpubkey1(RSAKey *reqkey)
@@ -342,6 +354,30 @@ static int count_keys(int ssh_version)
 int pageant_count_ssh1_keys(void) { return count_keys(1); }
 int pageant_count_ssh2_keys(void) { return count_keys(2); }
 
+char *pageant_nth_ssh1_key_disk_path(int index)
+{
+    PageantPublicKey *pub = index234(
+        pubkeytree, find_first_pubkey_for_version(1) + index);
+    if (!pub || pub->sort.priv.ssh_version != 1)
+        return NULL;
+    PageantPrivateKey *priv = pub_to_priv(pub);
+    if (!priv || !priv->source_disk_path)
+        return NULL;
+    return dupstr(priv->source_disk_path->s);
+}
+
+char *pageant_nth_ssh2_key_disk_path(int index)
+{
+    PageantPublicKey *pub = index234(
+        pubkeytree, find_first_pubkey_for_version(2) + index);
+    if (!pub || pub->sort.priv.ssh_version != 2)
+        return NULL;
+    PageantPrivateKey *priv = pub_to_priv(pub);
+    if (!priv || !priv->source_disk_path)
+        return NULL;
+    return dupstr(priv->source_disk_path->s);
+}
+
 /*
  * Common code to add a key to the trees. We fill in as many fields
  * here as we can share between SSH versions: the ptrlens in the
@@ -389,6 +425,11 @@ static bool pageant_add_key_common(PageantPublicKey *pub,
             priv->encrypted_key_comment = NULL;
         }
 
+        if (priv->source_disk_path && !priv_in_tree->source_disk_path) {
+            priv_in_tree->source_disk_path = priv->source_disk_path;
+            priv->source_disk_path = NULL;
+        }
+
         pk_priv_free(priv);
     }
 
@@ -406,7 +447,28 @@ static bool pageant_add_key_common(PageantPublicKey *pub,
     }
 }
 
-static bool pageant_add_ssh1_key(RSAKey *rkey)
+static void priv_set_disk_path(PageantPrivateKey *priv, Filename *fn)
+{
+    const char *diskpath;
+
+    if (!fn)
+        return;
+    /*
+     * On Windows, persist UTF-8 (utf8path), not the ANSI cpath, so paths
+     * written to pageant-keys.txt round-trip through filename_from_utf8.
+     * On Unix, filename_to_str is the canonical pathname string.
+     */
+#ifdef _WIN32
+    diskpath = fn->utf8path;
+#else
+    diskpath = filename_to_str(fn);
+#endif
+    if (!diskpath || !*diskpath)
+        return;
+    priv->source_disk_path = strbuf_dup_nm(ptrlen_from_asciz(diskpath));
+}
+
+static bool pageant_add_ssh1_key(RSAKey *rkey, Filename *disk)
 {
     PageantPublicKey *pub = snew(PageantPublicKey);
     memset(pub, 0, sizeof(PageantPublicKey));
@@ -423,10 +485,12 @@ static bool pageant_add_ssh1_key(RSAKey *rkey)
     priv->rkey = snew(RSAKey);
     duprsakey(priv->rkey, rkey);
 
+    priv_set_disk_path(priv, disk);
+
     return pageant_add_key_common(pub, priv);
 }
 
-static bool pageant_add_ssh2_key(ssh2_userkey *skey)
+static bool pageant_add_ssh2_key(ssh2_userkey *skey, Filename *disk)
 {
     PageantPublicKey *pub = snew(PageantPublicKey);
     memset(pub, 0, sizeof(PageantPublicKey));
@@ -450,11 +514,14 @@ static bool pageant_add_ssh2_key(ssh2_userkey *skey)
         strbuf_free(tmp);
     }
 
+    priv_set_disk_path(priv, disk);
+
     return pageant_add_key_common(pub, priv);
 }
 
 static bool pageant_add_ssh2_key_encrypted(PageantPublicKeySort sort,
-                                           const char *comment, ptrlen keyfile)
+                                           const char *comment, ptrlen keyfile,
+                                           Filename *disk)
 {
     PageantPublicKey *pub = snew(PageantPublicKey);
     memset(pub, 0, sizeof(PageantPublicKey));
@@ -470,6 +537,8 @@ static bool pageant_add_ssh2_key_encrypted(PageantPublicKeySort sort,
 
     priv->encrypted_key_file = strbuf_dup_nm(keyfile);
     priv->encrypted_key_comment = dupstr(comment);
+
+    priv_set_disk_path(priv, disk);
 
     return pageant_add_key_common(pub, priv);
 }
@@ -558,10 +627,12 @@ static void list_keys(BinarySink *bs, int ssh_version, bool extended)
             strbuf *sb = strbuf_new();
 
             uint32_t flags = 0;
-            if (!priv->skey)
-                flags |= LIST_EXTENDED_FLAG_HAS_NO_CLEARTEXT_KEY;
-            if (priv->encrypted_key_file)
-                flags |= LIST_EXTENDED_FLAG_HAS_ENCRYPTED_KEY_FILE;
+            if (priv) {
+                if (!priv->skey)
+                    flags |= LIST_EXTENDED_FLAG_HAS_NO_CLEARTEXT_KEY;
+                if (priv->encrypted_key_file)
+                    flags |= LIST_EXTENDED_FLAG_HAS_ENCRYPTED_KEY_FILE;
+            }
             put_uint32(sb, flags);
 
             put_stringsb(bs, sb);
@@ -890,6 +961,10 @@ static bool reencrypt_key(PageantPublicKey *pub)
 {
     PageantPrivateKey *priv = pub_to_priv(pub);
 
+    if (!priv) {
+        return false;
+    }
+
     if (priv->sort.ssh_version != 2) {
         /*
          * We don't support storing SSH-1 keys in encrypted form at
@@ -959,6 +1034,8 @@ static PageantAsyncOp *pageant_make_op(
             PageantPublicKey *pub;
             for (i = 0; NULL != (pub = pageant_nth_pubkey(1, i)); i++) {
                 PageantPrivateKey *priv = pub_to_priv(pub);
+                if (!priv)
+                    continue;
                 char *fingerprint = rsa_ssh1_fingerprint(priv->rkey);
                 pageant_client_log(pc, reqid, "returned key: %s",
                                    fingerprint);
@@ -1038,6 +1115,10 @@ static PageantAsyncOp *pageant_make_op(
             goto challenge1_cleanup;
         }
         priv = pub_to_priv(pub);
+        if (!priv) {
+            fail("key has no private half");
+            goto challenge1_cleanup;
+        }
         response = rsa_ssh1_decrypt(challenge, priv->rkey);
 
         {
@@ -1104,29 +1185,36 @@ static PageantAsyncOp *pageant_make_op(
             goto responded;
         }
 
-        if (have_flags)
-            pageant_client_log(pc, reqid, "signature flags = 0x%08"PRIx32,
-                               flags);
-        else
-            pageant_client_log(pc, reqid, "no signature flags");
+        {
+            PageantPrivateKey *signpriv = pub_to_priv(pub);
+            if (!signpriv) {
+                fail("key has no private half");
+                goto responded;
+            }
 
-        strbuf_free(sb); /* no immediate response */
+            if (have_flags)
+                pageant_client_log(pc, reqid, "signature flags = 0x%08"PRIx32,
+                                   flags);
+            else
+                pageant_client_log(pc, reqid, "no signature flags");
 
-        PageantSignOp *so = snew(PageantSignOp);
-        so->pao.vt = &signop_vtable;
-        so->pao.info = pc->info;
-        so->pao.cr.prev = pc->info->head.prev;
-        so->pao.cr.next = &pc->info->head;
-        so->pao.cr.prev->next = so->pao.cr.next->prev = &so->pao.cr;
-        so->pao.reqid = reqid;
-        so->priv = pub_to_priv(pub);
-        so->pkr.prev = so->pkr.next = NULL;
-        so->data_to_sign = strbuf_dup(sigdata);
-        so->flags = flags;
-        so->failure_type = failure_type;
-        so->crLine = 0;
-        return &so->pao;
-        break;
+            strbuf_free(sb); /* no immediate response */
+
+            PageantSignOp *so = snew(PageantSignOp);
+            so->pao.vt = &signop_vtable;
+            so->pao.info = pc->info;
+            so->pao.cr.prev = pc->info->head.prev;
+            so->pao.cr.next = &pc->info->head;
+            so->pao.cr.prev->next = so->pao.cr.next->prev = &so->pao.cr;
+            so->pao.reqid = reqid;
+            so->priv = signpriv;
+            so->pkr.prev = so->pkr.next = NULL;
+            so->data_to_sign = strbuf_dup(sigdata);
+            so->flags = flags;
+            so->failure_type = failure_type;
+            so->crLine = 0;
+            return &so->pao;
+        }
       }
       case SSH1_AGENTC_ADD_RSA_IDENTITY: {
         /*
@@ -1157,7 +1245,7 @@ static PageantAsyncOp *pageant_make_op(
             sfree(fingerprint);
         }
 
-        if (pageant_add_ssh1_key(key)) {
+        if (pageant_add_ssh1_key(key, NULL)) {
             keylist_update();
             put_byte(sb, SSH_AGENT_SUCCESS);
             pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
@@ -1216,7 +1304,7 @@ static PageantAsyncOp *pageant_make_op(
             sfree(fingerprint);
         }
 
-        if (pageant_add_ssh2_key(key)) {
+        if (pageant_add_ssh2_key(key, NULL)) {
             keylist_update();
             put_byte(sb, SSH_AGENT_SUCCESS);
 
@@ -1434,7 +1522,7 @@ static PageantAsyncOp *pageant_make_op(
                 ssh2_userkey *skey = ppk_load_s(src, NULL, &error);
                 if (!skey) {
                     fail("failed to decode private key: %s", error);
-                } else if (pageant_add_ssh2_key(skey)) {
+                } else if (pageant_add_ssh2_key(skey, NULL)) {
                     keylist_update();
                     put_byte(sb, SSH_AGENT_SUCCESS);
 
@@ -1456,7 +1544,7 @@ static PageantAsyncOp *pageant_make_op(
             sort.full_pub = ptrlen_from_strbuf(full_pub);
             base_pub = make_base_pub_2(&sort);
 
-            pageant_add_ssh2_key_encrypted(sort, comment, keyfile);
+            pageant_add_ssh2_key_encrypted(sort, comment, keyfile, NULL);
             keylist_update();
             put_byte(sb, SSH_AGENT_SUCCESS);
             pageant_client_log(pc, reqid, "reply: SSH_AGENT_SUCCESS");
@@ -2183,6 +2271,83 @@ static KeyList *pageant_get_keylist(unsigned ssh_version)
     return kl;
 }
 
+/*
+ * Add a PPK from memory (same logic as EXT_ADD_PPK). disk is stored
+ * for persistence when non-NULL (local agent only).
+ */
+static int pageant_add_ppk_from_blob(ptrlen keyfile, Filename *disk,
+                                     char **retstr)
+{
+    strbuf *full_pub = strbuf_new();
+    BinarySource src[1];
+    const char *error;
+    char *comment;
+
+    *retstr = NULL;
+
+    BinarySource_BARE_INIT_PL(src, keyfile);
+    if (!ppk_loadpub_s(src, NULL, BinarySink_UPCAST(full_pub),
+                       &comment, &error)) {
+        *retstr = dupprintf("failed to extract public key blob: %s", error);
+        strbuf_free(full_pub);
+        return PAGEANT_ACTION_FAILURE;
+    }
+
+    BinarySource_BARE_INIT_PL(src, keyfile);
+    bool encrypted = ppk_encrypted_s(src, NULL);
+
+    if (!encrypted) {
+        BinarySource_BARE_INIT_PL(src, keyfile);
+        ssh2_userkey *skey = ppk_load_s(src, NULL, &error);
+        if (!skey) {
+            *retstr = dupstr(error);
+            strbuf_free(full_pub);
+            sfree(comment);
+            return PAGEANT_ACTION_FAILURE;
+        }
+        if (!pageant_add_ssh2_key(skey, disk)) {
+            *retstr = dupstr("key already present");
+            if (skey->key)
+                ssh_key_free(skey->key);
+            if (skey->comment)
+                sfree(skey->comment);
+            sfree(skey);
+            strbuf_free(full_pub);
+            sfree(comment);
+            return PAGEANT_ACTION_FAILURE;
+        }
+        sfree(skey->comment);
+        ssh_key_free(skey->key);
+        sfree(skey);
+        strbuf_free(full_pub);
+        sfree(comment);
+        keylist_update();
+        return PAGEANT_ACTION_OK;
+    }
+
+    {
+        PageantPublicKeySort sort;
+        sort.priv.ssh_version = 2;
+        sort.full_pub = ptrlen_from_strbuf(full_pub);
+        strbuf *base_pub_alloc = make_base_pub_2(&sort);
+
+        if (!pageant_add_ssh2_key_encrypted(sort, comment, keyfile, disk)) {
+            *retstr = dupstr("key already present");
+            strbuf_free(full_pub);
+            if (base_pub_alloc)
+                strbuf_free(base_pub_alloc);
+            sfree(comment);
+            return PAGEANT_ACTION_FAILURE;
+        }
+        strbuf_free(full_pub);
+        if (base_pub_alloc)
+            strbuf_free(base_pub_alloc);
+        sfree(comment);
+        keylist_update();
+        return PAGEANT_ACTION_OK;
+    }
+}
+
 int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr, bool add_encrypted)
 {
@@ -2301,6 +2466,13 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
         if (!lf) {
             *retstr = dupstr(load_error);
             return PAGEANT_ACTION_FAILURE;
+        }
+
+        if (pageant_local) {
+            int pret = pageant_add_ppk_from_blob(
+                ptrlen_from_lf(lf), filename, retstr);
+            lf_free(lf);
+            return pret;
         }
 
         PageantClientOp *pco = pageant_client_op_new();
@@ -2423,6 +2595,31 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 
     if (comment)
         sfree(comment);
+
+    if (pageant_local) {
+        if (type == SSH_KEYTYPE_SSH1) {
+            bool added = pageant_add_ssh1_key(rkey, filename);
+            freersakey(rkey);
+            sfree(rkey);
+            if (!added) {
+                *retstr = dupstr("key already present");
+                return PAGEANT_ACTION_FAILURE;
+            }
+            keylist_update();
+            return PAGEANT_ACTION_OK;
+        } else {
+            bool added = pageant_add_ssh2_key(skey, filename);
+            sfree(skey->comment);
+            ssh_key_free(skey->key);
+            sfree(skey);
+            if (!added) {
+                *retstr = dupstr("key already present");
+                return PAGEANT_ACTION_FAILURE;
+            }
+            keylist_update();
+            return PAGEANT_ACTION_OK;
+        }
+    }
 
     if (type == SSH_KEYTYPE_SSH1) {
         PageantClientOp *pco = pageant_client_op_new();

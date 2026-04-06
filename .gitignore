@@ -47,6 +47,7 @@ cmake_install.cmake
 /puttytel
 /puttygen
 /pterm
+/nterm
 /puttyapp
 /ptermapp
 /psusan

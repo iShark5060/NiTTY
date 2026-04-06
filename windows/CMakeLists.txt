@@ -83,6 +83,9 @@ add_library(guimisc STATIC
 add_executable(pageant
   pageant.c
   help.c
+  controls.c
+  nitty_config_theme.c
+  nitty_winfeat.c
   pageant.rc)
 add_sources_from_current_dir(pageant no-jump-list.c)
 add_dependencies(pageant generated_licence_h)
@@ -174,7 +177,7 @@ set_target_properties(puttygen PROPERTIES
 installed_program(puttygen)
 
 if(HAVE_CONPTY)
-  add_executable(pterm
+  add_executable(nterm
     window.c
     nitty_script.c
     nitty_winfeat.c
@@ -188,16 +191,16 @@ if(HAVE_CONPTY)
     ${CMAKE_SOURCE_DIR}/stubs/no-rand.c
     ${CMAKE_SOURCE_DIR}/stubs/no-dit.c
     ${CMAKE_SOURCE_DIR}/proxy/nosshproxy.c
-    pterm.rc)
-  be_list(pterm pterm)
-  add_dependencies(pterm generated_licence_h)
-  target_link_libraries(pterm
+    nterm.rc)
+  be_list(nterm Nterm)
+  add_dependencies(nterm generated_licence_h)
+  target_link_libraries(nterm
     guiterminal guimisc eventloop settings network utils
     ${platform_libraries})
-  set_target_properties(pterm PROPERTIES WIN32_EXECUTABLE ON)
-  installed_program(pterm)
+  set_target_properties(nterm PROPERTIES WIN32_EXECUTABLE ON)
+  installed_program(nterm)
 else()
-  message("ConPTY not available; cannot build Windows pterm")
+  message("ConPTY not available; cannot build Windows nterm")
 endif()
 
 add_executable(test_split_into_argv
@@ -230,3 +233,6 @@ target_link_libraries(test_terminal
   guiterminal settings eventloop utils ${platform_libraries})
 
 add_sources_from_current_dir(test_conf no-jump-list.c handle-wait.c)
+
+# Sample portable config (see comments inside; only a few keys are read by NiTTY).
+install(FILES ${CMAKE_SOURCE_DIR}/nitty.ini DESTINATION .)
