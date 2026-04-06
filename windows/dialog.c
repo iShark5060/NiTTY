@@ -480,12 +480,18 @@ Filename *dialog_box_demo_screenshot_filename = NULL;
 /*
  * Config dialog layout (dialog units).
  *
- * Left column: tree view + buttons stacked below it.
- * Right column (108+ DLU): panel controls using full height.
+ * NITTY_CFG_DLG_WIDTH_DLU must match IDD_MAINBOX / IDD_CA_CONFIG width in
+ * putty-common.rc2. Other horizontals scale from the upstream 400 DLU-wide
+ * layout (tree 100 wide; panel from 108; stdbase right inset 295).
  *
  * NITTY_CFG_TREE_BTM_DLU is where the tree view ends and buttons begin.
  * NITTY_CFG_PANEL_BTM_DLU is the bottom of the panel area.
  */
+#define NITTY_CFG_DLG_WIDTH_DLU 275
+#define NITTY_CFG_TREE_W_DLU ((100 * NITTY_CFG_DLG_WIDTH_DLU + 200) / 400)
+#define NITTY_CFG_PANEL_LEFT_DLU (3 + NITTY_CFG_TREE_W_DLU + 5)
+#define NITTY_CFG_STDBASE_RIGHT_DLU ((295 * NITTY_CFG_DLG_WIDTH_DLU + 200) / 400)
+
 #define NITTY_CFG_TREE_TOP_DLU   13
 #define NITTY_CFG_TREE_BTM_DLU   290
 #define NITTY_CFG_BTN_START_DLU  295
@@ -522,7 +528,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
         nitty_config_theme_init(&pds->theme);
 
         pds_create_controls(pds, TREE_BASE, IDCX_STDBASE, 3,
-                              295, NITTY_CFG_BTN_START_DLU, "");
+                              NITTY_CFG_STDBASE_RIGHT_DLU, NITTY_CFG_BTN_START_DLU, "");
 
         SendMessage(hwnd, WM_SETICON, (WPARAM) ICON_BIG,
                     (LPARAM) LoadIcon(hinst, MAKEINTRESOURCE(IDI_CFGICON)));
@@ -538,7 +544,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             HWND tvstatic;
 
             r.left = 3;
-            r.right = r.left + 100;
+            r.right = r.left + NITTY_CFG_TREE_W_DLU;
             r.top = 3;
             r.bottom = r.top + 10;
             MapDialogRect(hwnd, &r);
@@ -552,7 +558,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             SendMessage(tvstatic, WM_SETFONT, font, MAKELPARAM(true, 0));
 
             r.left = 3;
-            r.right = r.left + 100;
+            r.right = r.left + NITTY_CFG_TREE_W_DLU;
             r.top = NITTY_CFG_TREE_TOP_DLU;
             r.bottom = r.top + (NITTY_CFG_TREE_BTM_DLU -
                                 NITTY_CFG_TREE_TOP_DLU);
@@ -633,7 +639,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
              */
             assert(firstpath);   /* config.c must have given us _something_ */
             pds_create_controls(pds, TREE_PANEL, IDCX_PANELBASE,
-                                108, 3, 13, firstpath);
+                                NITTY_CFG_PANEL_LEFT_DLU, 3, 13, firstpath);
             dlg_refresh(NULL, pds->dp);    /* and set up control values */
         }
 
@@ -729,7 +735,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
                 }
             }
             pds_create_controls(pds, TREE_PANEL, IDCX_PANELBASE,
-                                108, 3, 13, (char *)item.lParam);
+                                NITTY_CFG_PANEL_LEFT_DLU, 3, 13, (char *)item.lParam);
 
             dlg_refresh(NULL, pds->dp);    /* set up control values */
 
@@ -1379,7 +1385,7 @@ static INT_PTR CAConfigProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
         centre_window(hwnd);
 
         pds_create_controls(pds, 0, IDCX_PANELBASE, 3, 3, 3, "Main");
-        pds_create_controls(pds, 0, IDCX_STDBASE, 3, 295,
+        pds_create_controls(pds, 0, IDCX_STDBASE, 3, NITTY_CFG_STDBASE_RIGHT_DLU,
                               NITTY_CFG_PANEL_BTM_DLU, "");
         dlg_refresh(NULL, pds->dp);    /* and set up control values */
 
