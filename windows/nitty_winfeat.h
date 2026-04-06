@@ -15,6 +15,14 @@ void nitty_winfeat_init(void);
 UINT nitty_taskbar_created_message(void);
 
 /*
+ * Process-wide dark/light for Win32 menus (menu bar + dropdowns): must run
+ * before the first top-level window/menu is created (e.g. from WinMain after
+ * init_common_controls). Safe to call again on theme change; also invoked
+ * from nitty_apply_win11_window_chrome.
+ */
+void nitty_sync_preferred_app_mode(void);
+
+/*
  * Windows 10+ / 11: title bar dark/light to match Settings, Mica-style backdrop
  * when supported, and Explorer-themed non-client scrollbar (WS_VSCROLL) to
  * match Win11 / Settings. Safe no-ops on older OS or if APIs are unavailable.

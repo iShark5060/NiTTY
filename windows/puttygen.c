@@ -1975,7 +1975,8 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
             return 0;
           case IDC_GIVEHELP:
             if (HIWORD(wParam) == BN_CLICKED ||
-                HIWORD(wParam) == BN_DOUBLECLICKED) {
+                HIWORD(wParam) == BN_DOUBLECLICKED ||
+                HIWORD(wParam) == 0) { /* 0 = menu selection */
                 launch_help(hwnd, WINHELP_CTX_puttygen_general);
             }
             return 0;
@@ -2506,6 +2507,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     init_common_controls();
     hinst = inst;
+
+    /* Theming init (title bar, etc.); main UI uses a client menu bar + HMENU popups. */
+    nitty_winfeat_init();
 
     /*
      * See if we can find our Help file.

@@ -29,26 +29,32 @@ static bool winfeat_inited;
 static UINT msg_taskbar_created;
 
 /*
- * Undocumented uxtheme export (ordinal 133): opt-in NC area (incl. WS_VSCROLL
- * scrollbar) for dark mode. Widely used; safe if unavailable.
+ * Undocumented uxtheme exports (widely used; safe if unavailable):
+ *   104 — RefreshImmersiveColorPolicyState (after app mode change)
+ *   133 — AllowDarkModeForWindow (NC incl. WS_VSCROLL)
+ *   134 / 136 — FlushMenuThemes (ordinal varies by Windows build)
+ *   135 — SetPreferredAppMode (menu bar band + popups)
  */
 typedef BOOL (WINAPI *nitty_AllowDarkModeForWindow_fn)(HWND, BOOL);
+typedef int (WINAPI *nitty_SetPreferredAppMode_fn)(int);
+typedef void (WINAPI *nitty_FlushMenuThemes_fn)(void);
+typedef void (WINAPI *nitty_RefreshImmersiveColorPolicyState_fn)(void);
+
 static nitty_AllowDarkModeForWindow_fn nitty_pAllowDarkModeForWindow;
+static nitty_SetPreferredAppMode_fn nitty_pSetPreferredAppMode;
+static nitty_FlushMenuThemes_fn nitty_pFlushMenuThemes;
+static nitty_RefreshImmersiveColorPolicyState_fn
+    nitty_pRefreshImmersiveColorPolicyState;
 
-static void nitty_load_uxtheme_dark_helpers(void)
-{
-    static bool tried;
-    HMODULE ux;
-
-    if (tried)
-        return;
-    tried = true;
-    ux = GetModuleHandleW(L"uxtheme.dll");
-    if (!ux)
-        return;
-    nitty_pAllowDarkModeForWindow = (nitty_AllowDarkModeForWindow_fn)(void *)
-        GetProcAddress(ux, (LPCSTR)(UINT_PTR)133);
-}
+#ifndef NITTY_DWMWA_NCRENDERING_POLICY
+#define NITTY_DWMWA_NCRENDERING_POLICY 2
+#endif
+#ifndef DWMNCRP_USEWINDOWSTYLE
+#define DWMNCRP_USEWINDOWSTYLE 0
+#endif
+#ifndef DWMNCRP_ENABLED
+#define DWMNCRP_ENABLED 2
+#endif
 
 /*
  * "Apps" light/dark preference from Settings > Personalization > Colors
@@ -75,6 +81,52 @@ static bool nitty_windows_apps_prefer_dark(void)
     return value == 0;
 }
 
+static void nitty_load_uxtheme_dark_helpers(void)
+{
+    static bool tried;
+    HMODULE ux;
+
+    if (tried)
+        return;
+    tried = true;
+    ux = GetModuleHandleW(L"uxtheme.dll");
+    if (!ux)
+        return;
+    nitty_pAllowDarkModeForWindow = (nitty_AllowDarkModeForWindow_fn)(void *)
+        GetProcAddress(ux, (LPCSTR)(UINT_PTR)133);
+    nitty_pSetPreferredAppMode = (nitty_SetPreferredAppMode_fn)(void *)
+        GetProcAddress(ux, (LPCSTR)(UINT_PTR)135);
+    nitty_pFlushMenuThemes = (nitty_FlushMenuThemes_fn)(void *)
+        GetProcAddress(ux, (LPCSTR)(UINT_PTR)134);
+    if (!nitty_pFlushMenuThemes)
+        nitty_pFlushMenuThemes = (nitty_FlushMenuThemes_fn)(void *)
+            GetProcAddress(ux, (LPCSTR)(UINT_PTR)136);
+    nitty_pRefreshImmersiveColorPolicyState =
+        (nitty_RefreshImmersiveColorPolicyState_fn)(void *)
+            GetProcAddress(ux, (LPCSTR)(UINT_PTR)104);
+}
+
+void nitty_sync_preferred_app_mode(void)
+{
+    bool dark = nitty_windows_apps_prefer_dark();
+
+    nitty_load_uxtheme_dark_helpers();
+    if (nitty_pSetPreferredAppMode) {
+        /*
+         * PreferredAppMode: Default=0, AllowDark=1, ForceDark=2, ForceLight=3.
+         * On many Win10/11 builds AllowDark darkens popup menus but leaves the
+         * horizontal menu bar (“menu band”) light; ForceDark matches the dark
+         * title bar + menu strip when Apps use dark mode. We only force when
+         * the user already chose dark apps (same registry as elsewhere).
+         */
+        nitty_pSetPreferredAppMode(dark ? 2 : 0);
+    }
+    if (nitty_pFlushMenuThemes)
+        nitty_pFlushMenuThemes();
+    if (dark && nitty_pRefreshImmersiveColorPolicyState)
+        nitty_pRefreshImmersiveColorPolicyState();
+}
+
 void nitty_apply_win11_window_chrome(HWND hwnd)
 {
     BOOL dark_flag;
@@ -86,6 +138,8 @@ void nitty_apply_win11_window_chrome(HWND hwnd)
 
     dark = nitty_windows_apps_prefer_dark();
 
+    nitty_sync_preferred_app_mode();
+
     if (!nitty_dwmapi_module) {
         nitty_dwmapi_module = load_system32_dll("dwmapi.dll");
         if (nitty_dwmapi_module)
@@ -95,6 +149,16 @@ void nitty_apply_win11_window_chrome(HWND hwnd)
         dark_flag = dark ? TRUE : FALSE;
         p_DwmSetWindowAttribute(hwnd, NITTY_DWMWA_USE_IMMERSIVE_DARK_MODE,
                                 &dark_flag, sizeof(dark_flag));
+
+        /*
+         * Ask DWM to render non-client chrome (incl. menu bar strip) so it can
+         * follow immersive dark mode; restore default when light.
+         */
+        {
+            int ncrp = dark ? DWMNCRP_ENABLED : DWMNCRP_USEWINDOWSTYLE;
+            p_DwmSetWindowAttribute(hwnd, NITTY_DWMWA_NCRENDERING_POLICY,
+                                    &ncrp, sizeof(ncrp));
+        }
 
         /*
          * Mica-style system backdrop (Windows 11). Silently ignored on older
@@ -116,10 +180,13 @@ void nitty_apply_win11_window_chrome(HWND hwnd)
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", NULL);
     SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    DrawMenuBar(hwnd);
+    RedrawWindow(hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE);
 }
 
 void nitty_winfeat_init(void)
 {
+    nitty_sync_preferred_app_mode();
     if (winfeat_inited)
         return;
     winfeat_inited = true;
