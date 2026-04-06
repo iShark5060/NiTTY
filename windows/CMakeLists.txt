@@ -49,7 +49,9 @@ add_sources_from_current_dir(eventloop
 add_sources_from_current_dir(console
   select-cli.c nohelp.c console.c)
 add_sources_from_current_dir(settings
-  storage.c)
+  storage.c
+  nitty_portable.c
+  nitty_sessfile.c)
 add_sources_from_current_dir(network
   network.c handle-socket.c named-pipe-client.c named-pipe-server.c local-proxy.c x11.c)
 add_sources_from_current_dir(sshcommon
@@ -63,7 +65,8 @@ add_sources_from_current_dir(otherbackends
 add_sources_from_current_dir(agent
   agent-client.c)
 add_sources_from_current_dir(guiterminal
-  dialog.c controls.c config.c printing.c jump-list.c sizetip.c)
+  dialog.c controls.c config.c printing.c jump-list.c sizetip.c
+  nitty_config_theme.c nitty_autologin.c)
 add_dependencies(guiterminal generated_licence_h) # dialog.c uses licence.h
 
 # This object awkwardly needs to live in the network library as well
@@ -81,9 +84,10 @@ add_executable(pageant
   pageant.c
   help.c
   pageant.rc)
+add_sources_from_current_dir(pageant no-jump-list.c)
 add_dependencies(pageant generated_licence_h)
 target_link_libraries(pageant
-  guimisc eventloop agent network crypto utils
+  guimisc eventloop agent network crypto settings utils
   ${platform_libraries})
 set_target_properties(pageant PROPERTIES WIN32_EXECUTABLE ON)
 installed_program(pageant)
@@ -101,21 +105,29 @@ add_sources_from_current_dir(psocks nohelp.c)
 
 add_executable(putty
   window.c
+  nitty_script.c
+  nitty_winfeat.c
+  nitty_url.c
   putty.c
   help.c
   ${CMAKE_SOURCE_DIR}/stubs/no-console.c
   putty.rc)
-be_list(putty PuTTY SSH SERIAL OTHERBACKENDS)
+be_list(putty NiTTY SSH SERIAL OTHERBACKENDS)
 add_dependencies(putty generated_licence_h)
 target_link_libraries(putty
   guiterminal guimisc eventloop sshclient otherbackends settings network crypto
   utils
   ${platform_libraries})
-set_target_properties(putty PROPERTIES WIN32_EXECUTABLE ON)
+set_target_properties(putty PROPERTIES
+  WIN32_EXECUTABLE ON
+  OUTPUT_NAME "NiTTY")
 installed_program(putty)
 
 add_executable(puttytel
   window.c
+  nitty_script.c
+  nitty_winfeat.c
+  nitty_url.c
   putty.c
   help.c
   ${CMAKE_SOURCE_DIR}/stubs/no-gss.c
@@ -126,12 +138,14 @@ add_executable(puttytel
   ${CMAKE_SOURCE_DIR}/proxy/nocproxy.c
   ${CMAKE_SOURCE_DIR}/proxy/nosshproxy.c
   puttytel.rc)
-be_list(puttytel PuTTYtel SERIAL OTHERBACKENDS)
+be_list(puttytel NiTTYtel SERIAL OTHERBACKENDS)
 add_dependencies(puttytel generated_licence_h)
 target_link_libraries(puttytel
   guiterminal guimisc eventloop otherbackends settings network utils
   ${platform_libraries})
-set_target_properties(puttytel PROPERTIES WIN32_EXECUTABLE ON)
+set_target_properties(puttytel PROPERTIES
+  WIN32_EXECUTABLE ON
+  OUTPUT_NAME "NiTTYtel")
 installed_program(puttytel)
 
 add_executable(puttygen
@@ -140,21 +154,31 @@ add_executable(puttygen
   noise.c
   no-jump-list.c
   storage.c
+  nitty_portable.c
+  nitty_sessfile.c
+  nitty_config_theme.c
+  nitty_winfeat.c
   help.c
   ${CMAKE_SOURCE_DIR}/sshpubk.c
   ${CMAKE_SOURCE_DIR}/sshrand.c
   controls.c
   puttygen.rc)
+be_list(puttygen NiTTYgen)
 add_dependencies(puttygen generated_licence_h)
 target_link_libraries(puttygen
   keygen guimisc crypto utils
   ${platform_libraries})
-set_target_properties(puttygen PROPERTIES WIN32_EXECUTABLE ON)
+set_target_properties(puttygen PROPERTIES
+  WIN32_EXECUTABLE ON
+  OUTPUT_NAME "NiTTYgen")
 installed_program(puttygen)
 
 if(HAVE_CONPTY)
   add_executable(pterm
     window.c
+    nitty_script.c
+    nitty_winfeat.c
+    nitty_url.c
     pterm.c
     help.c
     conpty.c

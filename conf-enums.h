@@ -195,3 +195,17 @@ CONF_ENUM(x11_auth,
     VALUE(X11_MIT, 1),
     VALUE(X11_XDM, 2),
 )
+
+/* NiTTY / RuTTY-style login scripts (KiTTY-compatible storage values) */
+CONF_ENUM(nitty_script_mode,
+    VALUE(NITTY_SCRIPT_STOP, 0),
+    VALUE(NITTY_SCRIPT_PLAY, 1),
+    VALUE(NITTY_SCRIPT_RECORD, 2),
+)
+
+CONF_ENUM(nitty_script_crlf,
+    VALUE(NITTY_SCRIPT_CRLF_OFF, 0),
+    VALUE(NITTY_SCRIPT_CRLF_NOLF, 1),
+    VALUE(NITTY_SCRIPT_CRLF_CR, 2),
+    VALUE(NITTY_SCRIPT_CRLF_REC, 3),
+)

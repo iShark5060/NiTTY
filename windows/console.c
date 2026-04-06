@@ -606,11 +606,11 @@ void old_keyfile_warning(void)
         "You are loading an SSH-2 private key which has an\n"
         "old version of the file format. This means your key\n"
         "file is not fully tamperproof. Future versions of\n"
-        "PuTTY may stop supporting this private key format,\n"
+        "NiTTY may stop supporting this private key format,\n"
         "so we recommend you convert your key to the new\n"
         "format.\n"
         "\n"
-        "Once the key is loaded into PuTTYgen, you can perform\n"
+        "Once the key is loaded into NiTTYgen, you can perform\n"
         "this conversion simply by saving it again.\n";
 
     fputs(message, stderr);
@@ -621,12 +621,12 @@ void old_keyfile_warning(void)
  */
 void pgp_fingerprints(void)
 {
-    fputs("These are the fingerprints of the PuTTY PGP Master Keys. They can\n"
+    fputs("These are the fingerprints of the NiTTY PGP Master Keys. They can\n"
           "be used to establish a trust path from this executable to another\n"
           "one. See the manual for more information.\n"
           "(Note: these fingerprints have nothing to do with SSH!)\n"
           "\n"
-          "PuTTY Master Key as of " PGP_MASTER_KEY_YEAR
+          "NiTTY Master Key as of " PGP_MASTER_KEY_YEAR
           " (" PGP_MASTER_KEY_DETAILS "):\n"
           "  " PGP_MASTER_KEY_FP "\n\n"
           "Previous Master Key (" PGP_PREV_MASTER_KEY_YEAR

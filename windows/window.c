@@ -20,6 +20,8 @@
 #include "putty-rc.h"
 #include "security-api.h"
 #include "win-gui-seat.h"
+#include "nitty_winfeat.h"
+#include "nitty_url.h"
 #include "tree234.h"
 
 #ifdef NO_MULTIMON
@@ -286,6 +288,7 @@ static void start_backend(WinGuiSeat *wgs)
     int i;
 
     wgs->cmdline_get_passwd_state = cmdline_get_passwd_input_state_new;
+    wgs->nitty_conf_get_passwd_state = cmdline_get_passwd_input_state_new;
 
     vt = backend_vt_from_conf(wgs->conf);
 
@@ -325,6 +328,14 @@ static void start_backend(WinGuiSeat *wgs)
      */
     wgs->ldisc = ldisc_create(wgs->conf, wgs->term, wgs->backend, &wgs->seat);
 
+    nitty_script_prepare_session(&wgs->nitty_script, wgs->conf);
+    nitty_script_arm(&wgs->nitty_script, wgs->ldisc, wgs->logctx, wgs->term_hwnd);
+    if (conf_get_int(wgs->conf, CONF_nitty_script_mode) == NITTY_SCRIPT_PLAY) {
+        const Filename *sf = conf_get_filename(wgs->conf, CONF_nitty_script_filename);
+        if (!filename_is_null(sf))
+            nitty_script_sendfile(&wgs->nitty_script, sf);
+    }
+
     /*
      * Destroy the Restart Session menu item. (This will return
      * failure if it's already absent, as it will be the very first
@@ -346,6 +357,9 @@ static void close_session(void *vctx)
     int i;
 
     wgs->session_closed = true;
+
+    nitty_script_cleanup(&wgs->nitty_script);
+
     newtitle = dupprintf("%s (inactive)", appname);
     win_set_icon_title(&wgs->termwin, newtitle, DEFAULT_CODEPAGE);
     win_set_title(&wgs->termwin, newtitle, DEFAULT_CODEPAGE);
@@ -482,6 +496,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     init_winfuncs();
 
     setup_gui_timing();
+    nitty_winfeat_init();
 
     WinGuiSeat *wgs = snew(WinGuiSeat);
     memset(wgs, 0, sizeof(*wgs));
@@ -797,6 +812,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     ShowWindow(wgs->term_hwnd, show);
     SetForegroundWindow(wgs->term_hwnd);
 
+    nitty_apply_win11_window_chrome(wgs->term_hwnd);
+    nitty_apply_transparency(wgs->term_hwnd, wgs->conf);
+
     term_set_focus(wgs->term, GetForegroundWindow() == wgs->term_hwnd);
     UpdateWindow(wgs->term_hwnd);
 
@@ -882,6 +900,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
 static void wgs_cleanup(WinGuiSeat *wgs)
 {
+    nitty_tray_cleanup(wgs);
+    nitty_script_cleanup(&wgs->nitty_script);
     deinit_fonts(wgs);
     sfree(wgs->logpal);
     if (wgs->pal)
@@ -2226,6 +2246,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
         return 0;
       }
       case WM_DESTROY:
+        nitty_tray_cleanup(wgs);
         show_mouseptr(wgs, true);
         PostQuitMessage(0);
         return 0;
@@ -2237,6 +2258,21 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
             get_sesslist(&sesslist, true);
             update_savedsess_menu(wgs);
             return 0;
+        }
+        break;
+      case WM_SETTINGCHANGE:
+        /*
+         * Keep DWM title bar / backdrop in sync when the user toggles
+         * app light/dark mode in Settings.
+         */
+        if (lParam) {
+            if (unicode_window) {
+                if (!wcscmp((wchar_t *)lParam, L"ImmersiveColorSet"))
+                    nitty_apply_win11_window_chrome(hwnd);
+            } else {
+                if (!strcmp((char *)lParam, "ImmersiveColorSet"))
+                    nitty_apply_win11_window_chrome(hwnd);
+            }
         }
         break;
       case WM_COMMAND:
@@ -2423,6 +2459,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
             if (wgs->backend)
                 backend_reconfig(wgs->backend, wgs->conf);
 
+            nitty_apply_win11_window_chrome(hwnd);
+            nitty_apply_transparency(hwnd, wgs->conf);
+
             /* Screen size changed ? */
             if (conf_get_int(wgs->conf, CONF_height) !=
                 conf_get_int(prev_conf, CONF_height) ||
@@ -2560,6 +2599,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
              * using the mouse.
              */
             show_mouseptr(wgs, true);
+            break;
+          case SC_MINIMIZE:
+            if (message == WM_SYSCOMMAND &&
+                nitty_handle_minimize_to_tray(wgs, wParam))
+                return 0;
             break;
           case SC_KEYMENU:
             /*
@@ -2707,6 +2751,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
             }
 
             if (press) {
+                if (button == MBT_LEFT &&
+                    nitty_url_open_at(wgs->term, wgs->conf,
+                                      TO_CHR_X(X_POS(lParam)),
+                                      TO_CHR_Y(Y_POS(lParam))))
+                    return 0;
                 click(wgs, button,
                       TO_CHR_X(X_POS(lParam)), TO_CHR_Y(Y_POS(lParam)),
                       wParam & MK_SHIFT, wParam & MK_CONTROL,
@@ -2756,6 +2805,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
                        TO_CHR_Y(Y_POS(lParam)), wParam & MK_SHIFT,
                        wParam & MK_CONTROL, is_alt_pressed());
         } else {
+            nitty_url_set_cursor(wgs->term, wgs->conf,
+                                 TO_CHR_X(X_POS(lParam)),
+                                 TO_CHR_Y(Y_POS(lParam)),
+                                 (wParam & MK_CONTROL) != 0);
             term_mouse(wgs->term, MBT_NOTHING, MBT_NOTHING, MA_MOVE,
                        TO_CHR_X(X_POS(lParam)),
                        TO_CHR_Y(Y_POS(lParam)), false,
@@ -3114,6 +3167,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
                 reset_window(wgs, 0);
             }
         }
+        nitty_apply_transparency(hwnd, wgs->conf);
         sys_cursor_update(wgs);
         return 0;
       case WM_DPICHANGED:
@@ -3390,6 +3444,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
         process_clipdata(wgs, (HGLOBAL)lParam, wParam);
         return 0;
       default:
+        if (message == NITTY_WM_TRAY) {
+            nitty_tray_notify(wgs, lParam);
+            return 0;
+        }
+        if (message == nitty_taskbar_created_message()) {
+            nitty_tray_on_taskbar_created(wgs);
+            return 0;
+        }
         if (message == wm_mousewheel || message == WM_MOUSEWHEEL
                                                 || message == WM_MOUSEHWHEEL) {
             bool shift_pressed = false, control_pressed = false;
@@ -5896,6 +5958,10 @@ static size_t win_seat_output(Seat *seat, SeatOutputType type,
                               const void *data, size_t len)
 {
     WinGuiSeat *wgs = container_of(seat, WinGuiSeat, seat);
+
+    if (type == SEAT_OUTPUT_STDOUT || type == SEAT_OUTPUT_STDERR)
+        nitty_script_on_remote_data(&wgs->nitty_script, data, len);
+
     return term_data(wgs->term, data, len);
 }
 
@@ -5916,6 +5982,10 @@ static SeatPromptResult win_seat_get_userpass_input(Seat *seat, prompts_t *p)
     WinGuiSeat *wgs = container_of(seat, WinGuiSeat, seat);
     SeatPromptResult spr;
     spr = cmdline_get_passwd_input(p, &wgs->cmdline_get_passwd_state, true);
+    if (spr.kind == SPRK_INCOMPLETE)
+        spr = nitty_conf_get_passwd_input(p, wgs->conf,
+                                          &wgs->nitty_conf_get_passwd_state,
+                                          true);
     if (spr.kind == SPRK_INCOMPLETE)
         spr = term_get_userpass_input(wgs->term, p);
     return spr;

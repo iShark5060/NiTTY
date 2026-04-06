@@ -1,11 +1,11 @@
 #include "rcstuff.h"
 #include "putty-rc.h"
 
-#define APPNAME "PuTTY"
+#define APPNAME "NiTTY"
 #define APPDESC "SSH, Telnet, Rlogin, and SUPDUP client"
 
-IDI_MAINICON ICON "putty.ico"
-IDI_CFGICON ICON "puttycfg.ico"
+IDI_MAINICON ICON "nitty.ico"
+IDI_CFGICON ICON "nittycfg.ico"
 
 #include "help.rc2"
 #include "putty-common.rc2"

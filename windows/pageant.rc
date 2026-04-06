@@ -5,7 +5,7 @@
 #include "rcstuff.h"
 
 #define APPNAME "Pageant"
-#define APPDESC "PuTTY SSH authentication agent"
+#define APPDESC "NiTTY SSH authentication agent"
 
 #include "pageant-rc.h"
 
@@ -79,7 +79,7 @@ END
 /* No accelerators used */
 IDD_LICENCE DIALOG DISCARDABLE 50, 50, 326, 239
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY Licence"
+CAPTION "NiTTY Licence"
 FONT 8, "MS Shell Dlg"
 BEGIN
     DEFPUSHBUTTON "OK", IDOK, 148, 219, 44, 14

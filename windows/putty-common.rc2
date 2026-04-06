@@ -16,7 +16,7 @@
 /* Accelerators used: clw */
 IDD_ABOUTBOX DIALOG DISCARDABLE 140, 40, 270, 136
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "About PuTTY"
+CAPTION "About NiTTY"
 FONT 8, "MS Shell Dlg"
 BEGIN
     DEFPUSHBUTTON "&Close", IDOK, 216, 118, 48, 14
@@ -26,18 +26,18 @@ BEGIN
 END
 
 /* Accelerators used: aco */
-IDD_MAINBOX DIALOG DISCARDABLE 0, 0, 300, 252
+IDD_MAINBOX DIALOG DISCARDABLE 0, 0, 400, 356
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY Configuration"
-FONT 8, "MS Shell Dlg"
-CLASS "PuTTYConfigBox"
+CAPTION "NiTTY Configuration"
+FONT 9, "Segoe UI"
+CLASS "NiTTYConfigBox"
 BEGIN
 END
 
 /* Accelerators used: co */
 IDD_LOGBOX DIALOG DISCARDABLE 100, 20, 300, 119
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY Event Log"
+CAPTION "NiTTY Event Log"
 FONT 8, "MS Shell Dlg"
 BEGIN
     DEFPUSHBUTTON "&Close", IDOK, 135, 102, 44, 14
@@ -48,7 +48,7 @@ END
 /* No accelerators used */
 IDD_LICENCEBOX DIALOG DISCARDABLE 50, 50, 326, 239
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY Licence"
+CAPTION "NiTTY Licence"
 FONT 8, "MS Shell Dlg"
 BEGIN
     DEFPUSHBUTTON "OK", IDOK, 148, 219, 44, 14
@@ -59,9 +59,9 @@ END
 /* Accelerators used: achio */
 IDD_HOSTKEY DIALOG DISCARDABLE 50, 50, 340, 240
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY Security Alert"
+CAPTION "NiTTY Security Alert"
 FONT 8, "MS Shell Dlg"
-CLASS "PuTTYHostKeyDialog"
+CLASS "NiTTYHostKeyDialog"
 BEGIN
     ICON "", IDC_HK_ICON, 10, 18, 0, 0
 
@@ -79,19 +79,19 @@ END
 /* Accelerators used: c */
 IDD_HK_MOREINFO DIALOG DISCARDABLE 140, 40, 400, 300
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY: information about the server's host key"
+CAPTION "NiTTY: information about the server's host key"
 FONT 8, "MS Shell Dlg"
-CLASS "PuTTYHostKeyMoreInfo"
+CLASS "NiTTYHostKeyMoreInfo"
 BEGIN
     DEFPUSHBUTTON "&Close", IDOK, 176, 130, 48, 14
 END
 
 /* Accelerators used: aco */
-IDD_CA_CONFIG DIALOG DISCARDABLE 0, 0, 350, 260
+IDD_CA_CONFIG DIALOG DISCARDABLE 0, 0, 400, 356
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "PuTTY trusted host certification authorities"
-FONT 8, "MS Shell Dlg"
-CLASS "PuTTYConfigBox"
+CAPTION "NiTTY trusted host certification authorities"
+FONT 9, "Segoe UI"
+CLASS "NiTTYConfigBox"
 BEGIN
 END
 

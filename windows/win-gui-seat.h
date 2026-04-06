@@ -4,6 +4,10 @@
  * resources like the window handle.
  */
 
+#include "nitty_script.h"
+
+#include <shellapi.h>
+
 typedef struct WinGuiSeat WinGuiSeat;
 
 struct PopupMenu {
@@ -75,6 +79,7 @@ struct WinGuiSeat {
     Backend *backend;
 
     cmdline_get_passwd_input_state cmdline_get_passwd_state;
+    cmdline_get_passwd_input_state nitty_conf_get_passwd_state;
 
     struct unicode_data ucsdata;
     bool session_closed;
@@ -146,6 +151,12 @@ struct WinGuiSeat {
     WPARAM last_wm_mousemove_wParam, last_wm_ncmousemove_wParam;
     LPARAM last_wm_mousemove_lParam, last_wm_ncmousemove_lParam;
     wchar_t pending_surrogate;
+
+    NittyScriptData nitty_script;
+
+    bool nitty_tray_added;
+    bool nitty_tray_hidden;
+    NOTIFYICONDATAW nitty_tray_nid;
 };
 
 extern const LogPolicyVtable win_gui_logpolicy_vt; /* in dialog.c */

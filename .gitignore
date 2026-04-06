@@ -144,3 +144,6 @@ Makefile
 /windows/*.msi
 /windows/*.wixobj
 /windows/*.wixpdb
+_Resources/
+/build/
+/_build_test/

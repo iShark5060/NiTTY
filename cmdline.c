@@ -477,6 +477,18 @@ int cmdline_process_param(CmdlineArg *arg, CmdlineArg *nextarg,
         SAVEABLE(1);
         conf_set_str(conf, CONF_pre_connect_command, value);
     }
+    if (!strcmp(p, "-loginscript")) {
+        Filename *fn;
+
+        RETURN(2);
+        UNAVAILABLE_IN(TOOLTYPE_NONNETWORK);
+        SAVEABLE(0);
+
+        fn = cmdline_arg_to_filename(nextarg);
+        conf_set_filename(conf, CONF_nitty_script_filename, fn);
+        filename_free(fn);
+        conf_set_int(conf, CONF_nitty_script_mode, NITTY_SCRIPT_PLAY);
+    }
     if (!strcmp(p, "-hostkey")) {
         char *dup;
         RETURN(2);

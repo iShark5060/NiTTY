@@ -98,7 +98,7 @@ static bool do_filereq_a(
         of.lpstrFilter = "All Files (*.*)\0*\0\0\0";
         break;
       case FILTER_KEY_FILES:
-        of.lpstrFilter = "PuTTY Private Key Files (*.ppk)\0*.ppk\0"
+        of.lpstrFilter = "NiTTY Private Key Files (*.ppk)\0*.ppk\0"
             "All Files (*.*)\0*\0\0\0";
         of.lpstrDefExt = ".ppk";
         break;
@@ -169,7 +169,7 @@ static bool do_filereq_w(
         of.lpstrFilter = L"All Files (*.*)\0*\0\0\0";
         break;
       case FILTER_KEY_FILES:
-        of.lpstrFilter = L"PuTTY Private Key Files (*.ppk)\0*.ppk\0"
+        of.lpstrFilter = L"NiTTY Private Key Files (*.ppk)\0*.ppk\0"
             "All Files (*.*)\0*\0\0\0";
         of.lpstrDefExt = L".ppk";
         break;

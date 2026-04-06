@@ -1,6 +1,6 @@
 #include "putty.h"
 
-#define TIMING_CLASS_NAME "PuTTYTimerWindow"
+#define TIMING_CLASS_NAME "NiTTYTimerWindow"
 #define TIMING_TIMER_ID 1234
 static long timing_next_time;
 static HWND timing_hwnd;
@@ -36,7 +36,7 @@ void setup_gui_timing(void)
     RegisterClass(&wndclass);
 
     timing_hwnd = CreateWindow(
-        TIMING_CLASS_NAME, "PuTTY: hidden timing window",
+        TIMING_CLASS_NAME, "NiTTY: hidden timing window",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
         100, 100, NULL, NULL, hinst, NULL);
     ShowWindow(timing_hwnd, SW_HIDE);

@@ -13,6 +13,8 @@
 #include "licence.h"
 #include "security-api.h"
 #include "puttygen-rc.h"
+#include "nitty_config_theme.h"
+#include "nitty_winfeat.h"
 
 #include <commctrl.h>
 
@@ -41,7 +43,7 @@ void modalfatalbox(const char *fmt, ...)
     va_start(ap, fmt);
     stuff = dupvprintf(fmt, ap);
     va_end(ap);
-    MessageBox(NULL, stuff, "PuTTYgen Fatal Error",
+    MessageBox(NULL, stuff, "NiTTYgen Fatal Error",
                MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
     sfree(stuff);
     exit(1);
@@ -58,7 +60,7 @@ void nonfatal(const char *fmt, ...)
     va_start(ap, fmt);
     stuff = dupvprintf(fmt, ap);
     va_end(ap);
-    MessageBox(NULL, stuff, "PuTTYgen Error",
+    MessageBox(NULL, stuff, "NiTTYgen Error",
                MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
     sfree(stuff);
 }
@@ -197,6 +199,7 @@ static void win_progress_cleanup(struct progress *p)
 struct PassphraseProcStruct {
     char **passphrase;
     char *comment;
+    nitty_config_theme theme;
 };
 
 /*
@@ -206,7 +209,17 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
                                        WPARAM wParam, LPARAM lParam)
 {
     static char **passphrase = NULL;
-    struct PassphraseProcStruct *p;
+    struct PassphraseProcStruct *p =
+        (struct PassphraseProcStruct *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (msg == WM_INITDIALOG)
+        p = (struct PassphraseProcStruct *)lParam;
+
+    if (p && p->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&p->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
 
     switch (msg) {
       case WM_INITDIALOG:
@@ -230,22 +243,34 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
         }
 
         p = (struct PassphraseProcStruct *) lParam;
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)p);
+        nitty_config_theme_init(&p->theme);
         passphrase = p->passphrase;
         if (p->comment)
             SetDlgItemText(hwnd, 101, p->comment);
         burnstr(*passphrase);
         *passphrase = dupstr("");
         SetDlgItemText(hwnd, 102, *passphrase);
+        nitty_config_theme_apply_children(hwnd, &p->theme);
+        nitty_apply_win11_window_chrome(hwnd);
         return 0;
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
-            if (*passphrase)
+            if (*passphrase) {
+                p = (struct PassphraseProcStruct *)
+                    GetWindowLongPtr(hwnd, GWLP_USERDATA);
+                if (p)
+                    nitty_config_theme_free(&p->theme);
                 EndDialog(hwnd, 1);
-            else
+            } else
                 MessageBeep(0);
             return 0;
           case IDCANCEL:
+            p = (struct PassphraseProcStruct *)
+                GetWindowLongPtr(hwnd, GWLP_USERDATA);
+            if (p)
+                nitty_config_theme_free(&p->theme);
             EndDialog(hwnd, 0);
             return 0;
           case 102:                    /* edit box */
@@ -257,6 +282,9 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
         }
         return 0;
       case WM_CLOSE:
+        p = (struct PassphraseProcStruct *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+        if (p)
+            nitty_config_theme_free(&p->theme);
         EndDialog(hwnd, 0);
         return 0;
     }
@@ -288,6 +316,7 @@ static ppk_save_parameters save_params;
 struct PPKParams {
     ppk_save_parameters params;
     uint32_t time_passes, time_ms;
+    nitty_config_theme theme;
 };
 
 /*
@@ -306,8 +335,16 @@ static INT_PTR CALLBACK PPKParamsProc(HWND hwnd, UINT msg,
         pp = (struct PPKParams *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     }
 
+    if (pp && pp->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&pp->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG:
+        nitty_config_theme_init(&pp->theme);
         SetForegroundWindow(hwnd);
         SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -363,13 +400,19 @@ static INT_PTR CALLBACK PPKParamsProc(HWND hwnd, UINT msg,
         SetDlgItemText(hwnd, IDC_ARGON2_PARALLEL, buf);
         sfree(buf);
 
+        nitty_config_theme_apply_children(hwnd, &pp->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         return 0;
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
+            nitty_config_theme_free(&pp->theme);
             EndDialog(hwnd, 1);
             return 0;
           case IDCANCEL:
+            nitty_config_theme_free(&pp->theme);
             EndDialog(hwnd, 0);
             return 0;
           case IDC_PPKVER_2:
@@ -445,6 +488,7 @@ static INT_PTR CALLBACK PPKParamsProc(HWND hwnd, UINT msg,
         break;
       }
       case WM_CLOSE:
+        nitty_config_theme_free(&pp->theme);
         EndDialog(hwnd, 0);
         return 0;
     }
@@ -454,11 +498,33 @@ static INT_PTR CALLBACK PPKParamsProc(HWND hwnd, UINT msg,
 /*
  * Dialog-box function for the Licence box.
  */
+static void nitty_puttygen_licence_about_cleanup(HWND hwnd)
+{
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th) {
+        nitty_config_theme_free(th);
+        sfree(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
+    }
+}
+
 static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam)
 {
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
         /*
          * Centre the window.
          */
@@ -473,17 +539,21 @@ static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
                        rd.right - rd.left, rd.bottom - rd.top, true);
 
         SetDlgItemText(hwnd, 1000, LICENCE_TEXT("\r\n\r\n"));
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
         return 1;
       }
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
           case IDCANCEL:
+            nitty_puttygen_licence_about_cleanup(hwnd);
             EndDialog(hwnd, 1);
             return 0;
         }
         return 0;
       case WM_CLOSE:
+        nitty_puttygen_licence_about_cleanup(hwnd);
         EndDialog(hwnd, 1);
         return 0;
     }
@@ -496,8 +566,19 @@ static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
 static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
                                   WPARAM wParam, LPARAM lParam)
 {
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG:
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
         /*
          * Centre the window.
          */
@@ -516,7 +597,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         {
             char *buildinfo_text = buildinfo("\r\n");
             char *text = dupprintf(
-                "PuTTYgen\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
+                "NiTTYgen\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
                 ver, buildinfo_text,
                 "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
             sfree(buildinfo_text);
@@ -524,11 +605,14 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
             MakeDlgItemBorderless(hwnd, 1000);
             sfree(text);
         }
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
         return 1;
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
           case IDOK:
           case IDCANCEL:
+            nitty_puttygen_licence_about_cleanup(hwnd);
             EndDialog(hwnd, 1);
             return 0;
           case 101:
@@ -546,6 +630,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         }
         return 0;
       case WM_CLOSE:
+        nitty_puttygen_licence_about_cleanup(hwnd);
         EndDialog(hwnd, 1);
         return 0;
     }
@@ -613,6 +698,7 @@ struct InitialParams {
 };
 
 struct MainDlgState {
+    nitty_config_theme theme;
     bool generation_thread_exists;
     bool key_exists;
     int entropy_got, entropy_required;
@@ -741,16 +827,16 @@ static void setupbigedit2(HWND hwnd, ssh2_userkey *key)
  */
 void old_keyfile_warning(void)
 {
-    static const char mbtitle[] = "PuTTY Key File Warning";
+    static const char mbtitle[] = "NiTTY Key File Warning";
     static const char message[] =
         "You are loading an SSH-2 private key which has an\n"
         "old version of the file format. This means your key\n"
         "file is not fully tamperproof. Future versions of\n"
-        "PuTTY may stop supporting this private key format,\n"
+        "NiTTY may stop supporting this private key format,\n"
         "so we recommend you convert your key to the new\n"
         "format.\n"
         "\n"
-        "Once the key is loaded into PuTTYgen, you can perform\n"
+        "Once the key is loaded into NiTTYgen, you can perform\n"
         "this conversion simply by saving it again.";
 
     MessageBox(NULL, message, mbtitle, MB_OK);
@@ -1110,7 +1196,7 @@ void load_key_file(HWND hwnd, struct MainDlgState *state,
         !import_possible(type)) {
         char *msg = dupprintf("Couldn't load private key (%s)",
                               key_type_to_str(type));
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         return;
@@ -1173,7 +1259,7 @@ void load_key_file(HWND hwnd, struct MainDlgState *state,
         sfree(comment);
     if (ret == 0) {
         char *msg = dupprintf("Couldn't load private key (%s)", errmsg);
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
     } else if (ret == 1) {
@@ -1197,7 +1283,7 @@ void load_key_file(HWND hwnd, struct MainDlgState *state,
                     "use the \"Save private key\" command to\n"
                     "save it in PuTTY's own format.",
                     key_type_to_str(realtype));
-            MessageBox(NULL, msg, "PuTTYgen Notice",
+            MessageBox(NULL, msg, "NiTTYgen Notice",
                        MB_OK | MB_ICONINFORMATION);
         }
     }
@@ -1212,7 +1298,7 @@ void add_certificate(HWND hwnd, struct MainDlgState *state,
         type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
         char *msg = dupprintf("Couldn't load certificate (%s)",
                               key_type_to_str(type));
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         return;
@@ -1225,7 +1311,7 @@ void add_certificate(HWND hwnd, struct MainDlgState *state,
     if (!ppk_loadpub_f(filename, &algname, BinarySink_UPCAST(pub), &comment,
                        &error)) {
         char *msg = dupprintf("Couldn't load certificate (%s)", error);
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         strbuf_free(pub);
@@ -1238,7 +1324,7 @@ void add_certificate(HWND hwnd, struct MainDlgState *state,
     if (!alg) {
         char *msg = dupprintf("Couldn't load certificate (unsupported "
                               "algorithm name '%s')", algname);
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         sfree(algname);
@@ -1266,7 +1352,7 @@ void add_certificate(HWND hwnd, struct MainDlgState *state,
 
     if (!match) {
         char *msg = dupprintf("Certificate is for a different public key");
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         strbuf_free(pub);
@@ -1282,7 +1368,7 @@ void add_certificate(HWND hwnd, struct MainDlgState *state,
 
     if (!newkey) {
         char *msg = dupprintf("Couldn't combine certificate with key");
-        message_box(hwnd, msg, "PuTTYgen Error", MB_OK | MB_ICONERROR,
+        message_box(hwnd, msg, "NiTTYgen Error", MB_OK | MB_ICONERROR,
                     false, HELPCTXID(errors_cantloadkey));
         sfree(msg);
         return;
@@ -1347,6 +1433,7 @@ static void start_generating_key(HWND hwnd, struct MainDlgState *state)
  */
 struct certinfo_dialog_ctx {
     SeatDialogText *text;
+    nitty_config_theme theme;
 };
 
 static INT_PTR CertInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
@@ -1354,8 +1441,16 @@ static INT_PTR CertInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
 {
     struct certinfo_dialog_ctx *ctx = (struct certinfo_dialog_ctx *)vctx;
 
+    if (ctx && ctx->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&ctx->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
+        nitty_config_theme_init(&ctx->theme);
         int index = 100, y = 12;
 
         WPARAM font = SendMessage(hwnd, WM_GETFONT, 0, 0);
@@ -1449,6 +1544,8 @@ static INT_PTR CertInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
                      SWP_NOMOVE | SWP_NOREDRAW | SWP_NOZORDER);
 
         ShowWindow(hwnd, SW_SHOWNORMAL);
+        nitty_config_theme_apply_children(hwnd, &ctx->theme);
+        nitty_apply_win11_window_chrome(hwnd);
         return 1;
       }
       case WM_COMMAND:
@@ -1460,6 +1557,9 @@ static INT_PTR CertInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
         return 0;
       case WM_CLOSE:
         ShinyEndDialog(hwnd, 0);
+        return 0;
+      case WM_DESTROY:
+        nitty_config_theme_free(&ctx->theme);
         return 0;
     }
     return 0;
@@ -1474,7 +1574,15 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
     const int DEMO_SCREENSHOT_TIMER_ID = 1230;
     static const char entropy_msg[] =
         "Please generate some randomness by moving the mouse over the blank area.";
-    struct MainDlgState *state;
+    struct MainDlgState *state =
+        (struct MainDlgState *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    if (state && state->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&state->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
 
     switch (msg) {
       case WM_INITDIALOG:
@@ -1495,6 +1603,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
         state->generation_thread_exists = false;
         state->entropy = NULL;
         state->key_exists = false;
+        nitty_config_theme_init(&state->theme);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR) state);
         {
             HMENU menu, menu1;
@@ -1708,6 +1817,11 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
         /*
          * Load a key file if one was provided on the command line.
          */
+        nitty_config_theme_apply_children(hwnd, &state->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
         if (cmdline_keyfile) {
             load_key_file(hwnd, state, cmdline_keyfile, false);
         } else if (cmdline_demo_keystr.ptr) {
@@ -1724,6 +1838,22 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
         }
 
         return 1;
+      case WM_SETTINGCHANGE:
+        if (lParam) {
+#if defined(UNICODE) || defined(_UNICODE)
+            if (!wcscmp((wchar_t *)lParam, L"ImmersiveColorSet"))
+#else
+            if (!strcmp((char *)lParam, "ImmersiveColorSet"))
+#endif
+            {
+                state = (struct MainDlgState *)GetWindowLongPtr(hwnd,
+                                                                GWLP_USERDATA);
+                if (state && state->theme.inited)
+                    nitty_config_theme_refresh(&state->theme, NULL, hwnd);
+                nitty_apply_win11_window_chrome(hwnd);
+            }
+        }
+        return 0;
       case WM_TIMER:
         if ((UINT_PTR)wParam == DEMO_SCREENSHOT_TIMER_ID) {
             KillTimer(hwnd, DEMO_SCREENSHOT_TIMER_ID);
@@ -1894,10 +2024,10 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                 if ((state->keytype == RSA || state->keytype == DSA) &&
                     state->key_bits < 256) {
                     char *message = dupprintf(
-                        "PuTTYgen will not generate a key smaller than 256"
+                        "NiTTYgen will not generate a key smaller than 256"
                         " bits.\nKey length reset to default %d. Continue?",
                         DEFAULT_KEY_BITS);
-                    int ret = MessageBox(hwnd, message, "PuTTYgen Warning",
+                    int ret = MessageBox(hwnd, message, "NiTTYgen Warning",
                                          MB_ICONWARNING | MB_OKCANCEL);
                     sfree(message);
                     if (ret != IDOK)
@@ -1909,7 +2039,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                     char *message = dupprintf(
                         "Keys shorter than %d bits are not recommended. "
                         "Really generate this key?", DEFAULT_KEY_BITS);
-                    int ret = MessageBox(hwnd, message, "PuTTYgen Warning",
+                    int ret = MessageBox(hwnd, message, "NiTTYgen Warning",
                                          MB_ICONWARNING | MB_OKCANCEL);
                     sfree(message);
                     if (ret != IDOK)
@@ -2012,7 +2142,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                             " format", (state->ssh2 ? 2 : 1),
                             (state->ssh2 ? 1 : 2));
                     MessageBox(hwnd, msg,
-                               "PuTTYgen Error", MB_OK | MB_ICONERROR);
+                               "NiTTYgen Error", MB_OK | MB_ICONERROR);
                     break;
                 }
 
@@ -2021,7 +2151,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                 if (strcmp(passphrase, passphrase2)) {
                     MessageBox(hwnd,
                                "The two passphrases given do not match.",
-                               "PuTTYgen Error", MB_OK | MB_ICONERROR);
+                               "NiTTYgen Error", MB_OK | MB_ICONERROR);
                     burnstr(passphrase);
                     burnstr(passphrase2);
                     break;
@@ -2032,7 +2162,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                     ret = MessageBox(hwnd,
                                      "Are you sure you want to save this key\n"
                                      "without a passphrase to protect it?",
-                                     "PuTTYgen Warning",
+                                     "NiTTYgen Warning",
                                      MB_YESNO | MB_ICONWARNING);
                     if (ret != IDYES) {
                         burnstr(passphrase);
@@ -2050,7 +2180,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                         fclose(fp);
                         buffer = dupprintf("Overwrite existing file\n%s?",
                                            filename_to_str(fn));
-                        ret = MessageBox(hwnd, buffer, "PuTTYgen Warning",
+                        ret = MessageBox(hwnd, buffer, "NiTTYgen Warning",
                                          MB_YESNO | MB_ICONWARNING);
                         sfree(buffer);
                         if (ret != IDYES) {
@@ -2078,7 +2208,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                     }
                     if (ret <= 0) {
                         MessageBox(hwnd, "Unable to save key file",
-                                   "PuTTYgen Error", MB_OK | MB_ICONERROR);
+                                   "NiTTYgen Error", MB_OK | MB_ICONERROR);
                     }
                     filename_free(fn);
                 }
@@ -2102,7 +2232,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                         fclose(fp);
                         buffer = dupprintf("Overwrite existing file\n%s?",
                                            filename_to_str(fn));
-                        ret = MessageBox(hwnd, buffer, "PuTTYgen Warning",
+                        ret = MessageBox(hwnd, buffer, "NiTTYgen Warning",
                                          MB_YESNO | MB_ICONWARNING);
                         sfree(buffer);
                         if (ret != IDYES) {
@@ -2113,7 +2243,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                     fp = f_open(fn, "w", false);
                     if (!fp) {
                         MessageBox(hwnd, "Unable to open key file",
-                                   "PuTTYgen Error", MB_OK | MB_ICONERROR);
+                                   "NiTTYgen Error", MB_OK | MB_ICONERROR);
                     } else {
                         if (state->ssh2) {
                             strbuf *blob = strbuf_new();
@@ -2128,7 +2258,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
                         }
                         if (fclose(fp) < 0) {
                             MessageBox(hwnd, "Unable to save key file",
-                                       "PuTTYgen Error", MB_OK | MB_ICONERROR);
+                                       "NiTTYgen Error", MB_OK | MB_ICONERROR);
                         }
                     }
                     filename_free(fn);
@@ -2189,7 +2319,7 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
             struct certinfo_dialog_ctx ctx[1];
             ctx->text = ssh_key_cert_info(state->ssh2key.key);
             ShinyDialogBox(hinst, MAKEINTRESOURCE(216),
-                           "PuTTYgenCertInfo", hwnd, CertInfoProc, ctx);
+                           "NiTTYgenCertInfo", hwnd, CertInfoProc, ctx);
             seat_dialog_text_free(ctx->text);
             break;
           }
@@ -2336,6 +2466,8 @@ static INT_PTR CALLBACK MainDlgProc(HWND hwnd, UINT msg,
       }
       case WM_CLOSE:
         state = (struct MainDlgState *) GetWindowLongPtr(hwnd, GWLP_USERDATA);
+        if (state)
+            nitty_config_theme_free(&state->theme);
         sfree(state);
         quit_help(hwnd);
         EndDialog(hwnd, 1);
@@ -2359,7 +2491,7 @@ static NORETURN void opt_error(const char *fmt, ...)
     char *msg = dupvprintf(fmt, ap);
     va_end(ap);
 
-    MessageBox(NULL, msg, "PuTTYgen command line error", MB_ICONERROR | MB_OK);
+    MessageBox(NULL, msg, "NiTTYgen command line error", MB_ICONERROR | MB_OK);
 
     exit(1);
 }

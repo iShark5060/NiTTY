@@ -458,6 +458,15 @@ CONF_OPTION(username_from_env,
     DEFAULT_BOOL(false),
     SAVE_KEYWORD("UserNameFromEnvironment"),
 )
+/*
+ * KiTTY-style SSH password in saved sessions (plain text; same registry
+ * keyword as KiTTY). Used only when the server requests password auth.
+ */
+CONF_OPTION(nitty_autologin_password,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(""),
+    SAVE_KEYWORD("Password"),
+)
 CONF_OPTION(localusername,
     VALUE_TYPE(STR),
     DEFAULT_STR(""),
@@ -890,7 +899,7 @@ CONF_OPTION(window_border,
 )
 CONF_OPTION(answerback,
     VALUE_TYPE(STR),
-    DEFAULT_STR("PuTTY"),
+    DEFAULT_STR("NiTTY"),
     SAVE_KEYWORD("Answerback"),
 )
 CONF_OPTION(printer,
@@ -1290,4 +1299,89 @@ CONF_OPTION(winclass,
     VALUE_TYPE(STR),
     DEFAULT_STR(""),
     SAVE_KEYWORD("WindowClass"),
+)
+
+/* NiTTY: RuTTY-style automatic login / session scripts (KiTTY registry keywords) */
+CONF_OPTION(nitty_script_filename,
+    VALUE_TYPE(FILENAME),
+    SAVE_KEYWORD("ScriptFileName"),
+)
+CONF_OPTION(nitty_script_mode,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(NITTY_SCRIPT_STOP),
+    SAVE_KEYWORD("ScriptMode"),
+    STORAGE_ENUM(nitty_script_mode),
+)
+CONF_OPTION(nitty_script_line_delay,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(0),
+    SAVE_KEYWORD("ScriptLineDelay"),
+)
+CONF_OPTION(nitty_script_char_delay,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(0),
+    SAVE_KEYWORD("ScriptCharDelay"),
+)
+CONF_OPTION(nitty_script_cond_line,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(":"),
+    SAVE_KEYWORD("ScriptCondLine"),
+)
+CONF_OPTION(nitty_script_cond_use,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("ScriptCondUse"),
+)
+CONF_OPTION(nitty_script_enable,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("ScriptEnable"),
+)
+CONF_OPTION(nitty_script_except,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("ScriptExcept"),
+)
+CONF_OPTION(nitty_script_timeout,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(30),
+    SAVE_KEYWORD("ScriptTimeout"),
+)
+CONF_OPTION(nitty_script_waitfor,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(""),
+    SAVE_KEYWORD("ScriptWait"),
+)
+CONF_OPTION(nitty_script_halton,
+    VALUE_TYPE(STR),
+    DEFAULT_STR(""),
+    SAVE_KEYWORD("ScriptHalt"),
+)
+CONF_OPTION(nitty_script_crlf,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(NITTY_SCRIPT_CRLF_NOLF),
+    SAVE_KEYWORD("ScriptCRLF"),
+    STORAGE_ENUM(nitty_script_crlf),
+)
+
+/* NiTTY: window / UX (KiTTY-style) */
+CONF_OPTION(nitty_window_alpha,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(0),
+    SAVE_KEYWORD("NiTTYWindowAlpha"),
+)
+CONF_OPTION(nitty_minimize_to_tray,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(false),
+    SAVE_KEYWORD("NiTTYMinimizeToTray"),
+)
+CONF_OPTION(nitty_url_enable,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(true),
+    SAVE_KEYWORD("NiTTYUrlEnable"),
+)
+CONF_OPTION(nitty_url_ctrl_click,
+    VALUE_TYPE(BOOL),
+    DEFAULT_BOOL(true),
+    SAVE_KEYWORD("NiTTYUrlCtrlClick"),
 )

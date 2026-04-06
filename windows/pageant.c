@@ -18,6 +18,8 @@
 #include "pageant.h"
 #include "licence.h"
 #include "pageant-rc.h"
+#include "storage.h"
+#include "nitty_portable.h"
 
 #include <shellapi.h>
 
@@ -70,8 +72,6 @@ static filereq_saved_dir *keypath = NULL;
 #define IDM_PUTTY              0x0090
 #define IDM_SESSIONS_BASE      0x1000
 #define IDM_SESSIONS_MAX       0x2000
-#define PUTTY_REGKEY      "Software\\SimonTatham\\PuTTY\\Sessions"
-#define PUTTY_DEFAULT     "Default%20Settings"
 static int initial_menuitems_count;
 
 /*
@@ -89,6 +89,19 @@ void modalfatalbox(const char *fmt, ...)
                MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
     sfree(buf);
     exit(1);
+}
+
+void nonfatal(const char *fmt, ...)
+{
+    va_list ap;
+    char *buf;
+
+    va_start(ap, fmt);
+    buf = dupvprintf(fmt, ap);
+    va_end(ap);
+    MessageBox(traywindow, buf, "Pageant Error",
+               MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+    sfree(buf);
 }
 
 struct PassphraseProcStruct {
@@ -297,17 +310,17 @@ static INT_PTR CALLBACK PassphraseProc(HWND hwnd, UINT msg,
  */
 void old_keyfile_warning(void)
 {
-    static const char mbtitle[] = "PuTTY Key File Warning";
+    static const char mbtitle[] = "NiTTY Key File Warning";
     static const char message[] =
         "You are loading an SSH-2 private key which has an\n"
         "old version of the file format. This means your key\n"
         "file is not fully tamperproof. Future versions of\n"
-        "PuTTY may stop supporting this private key format,\n"
+        "NiTTY may stop supporting this private key format,\n"
         "so we recommend you convert your key to the new\n"
         "format.\n"
         "\n"
         "You can perform this conversion by loading the key\n"
-        "into PuTTYgen and then saving it again.";
+        "into NiTTYgen and then saving it again.";
 
     MessageBox(NULL, message, mbtitle, MB_OK);
 }
@@ -867,21 +880,16 @@ static BOOL AddTrayIcon(HWND hwnd)
     return res;
 }
 
-/* Update the saved-sessions menu. */
+/* Update the saved-sessions menu (registry or NiTTY portable Sessions/). */
 static void update_sessions(void)
 {
     int num_entries;
-    HKEY hkey;
-    TCHAR buf[MAX_PATH + 1];
     MENUITEMINFO mii;
+    settings_e *e;
     strbuf *sb;
-
-    int index_key, index_menu;
+    int index_menu;
 
     if (!putty_path)
-        return;
-
-    if (ERROR_SUCCESS != RegOpenKey(HKEY_CURRENT_USER, PUTTY_REGKEY, &hkey))
         return;
 
     for (num_entries = GetMenuItemCount(session_menu);
@@ -889,32 +897,42 @@ static void update_sessions(void)
         num_entries--)
         RemoveMenu(session_menu, 0, MF_BYPOSITION);
 
-    index_key = 0;
-    index_menu = 0;
+    e = enum_settings_start();
+    if (!e) {
+        memset(&mii, 0, sizeof(mii));
+        mii.cbSize = sizeof(mii);
+        mii.fMask = MIIM_TYPE | MIIM_STATE;
+        mii.fType = MFT_STRING;
+        mii.fState = MFS_GRAYED;
+        mii.dwTypeData = _T("(No sessions)");
+        InsertMenuItem(session_menu, 0, true, &mii);
+        return;
+    }
 
     sb = strbuf_new();
-    while (ERROR_SUCCESS == RegEnumKey(hkey, index_key, buf, MAX_PATH)) {
-        if (strcmp(buf, PUTTY_DEFAULT) != 0) {
-            strbuf_clear(sb);
-            unescape_registry_key(buf, sb);
+    index_menu = 0;
+    while (true) {
+        strbuf_clear(sb);
+        if (!enum_settings_next(e, sb))
+            break;
+        if (!strcmp(sb->s, "Default Settings"))
+            continue;
 
-            memset(&mii, 0, sizeof(mii));
-            mii.cbSize = sizeof(mii);
-            mii.fMask = MIIM_TYPE | MIIM_STATE | MIIM_ID;
-            mii.fType = MFT_STRING;
-            mii.fState = MFS_ENABLED;
-            mii.wID = (index_menu * 16) + IDM_SESSIONS_BASE;
-            mii.dwTypeData = sb->s;
-            InsertMenuItem(session_menu, index_menu, true, &mii);
-            index_menu++;
-        }
-        index_key++;
+        memset(&mii, 0, sizeof(mii));
+        mii.cbSize = sizeof(mii);
+        mii.fMask = MIIM_TYPE | MIIM_STATE | MIIM_ID;
+        mii.fType = MFT_STRING;
+        mii.fState = MFS_ENABLED;
+        mii.wID = (index_menu * 16) + IDM_SESSIONS_BASE;
+        mii.dwTypeData = sb->s;
+        InsertMenuItem(session_menu, index_menu, true, &mii);
+        index_menu++;
     }
     strbuf_free(sb);
-
-    RegCloseKey(hkey);
+    enum_settings_finish(e);
 
     if (index_menu == 0) {
+        memset(&mii, 0, sizeof(mii));
         mii.cbSize = sizeof(mii);
         mii.fMask = MIIM_TYPE | MIIM_STATE;
         mii.fType = MFT_STRING;
@@ -1544,24 +1562,53 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     init_help();
 
     /*
-     * Look for the PuTTY binary (we will enable the saved session
-     * submenu if we find it).
+     * Look for the terminal binary beside Pageant (NiTTY or PuTTY).
+     * We enable the saved-session submenu if we find one.
      */
     {
         char b[2048], *p, *q, *r;
         FILE *fp;
+        static const char *const terminal_candidates[] = {
+            "NiTTY.exe", "nitty.exe", "putty.exe"
+        };
+        size_t ci;
+
         GetModuleFileName(NULL, b, sizeof(b) - 16);
         r = b;
         p = strrchr(b, '\\');
-        if (p && p >= r) r = p+1;
+        if (p && p >= r)
+            r = p + 1;
         q = strrchr(b, ':');
-        if (q && q >= r) r = q+1;
-        strcpy(r, "putty.exe");
-        if ( (fp = fopen(b, "r")) != NULL) {
-            putty_path = dupstr(b);
-            fclose(fp);
-        } else
-            putty_path = NULL;
+        if (q && q >= r)
+            r = q + 1;
+
+        putty_path = NULL;
+        for (ci = 0; ci < lenof(terminal_candidates); ci++) {
+            strcpy(r, terminal_candidates[ci]);
+            fp = fopen(b, "r");
+            if (fp) {
+                putty_path = dupstr(b);
+                fclose(fp);
+                break;
+            }
+        }
+    }
+
+    /*
+     * NiTTY portable: read nitty.ini from the terminal's directory when we
+     * know where NiTTY.exe/putty.exe is, so Pageant lists the same sessions
+     * as the GUI even if pageant.exe lives elsewhere.
+     */
+    if (putty_path) {
+        char *dup = dupstr(putty_path);
+        char *slash = strrchr(dup, '\\');
+
+        if (slash)
+            *slash = '\0';
+        nitty_portable_set_config_directory(dup);
+        sfree(dup);
+    } else {
+        nitty_portable_set_config_directory(NULL);
     }
 
     /*

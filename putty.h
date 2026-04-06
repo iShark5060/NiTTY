@@ -578,6 +578,23 @@ enum {
     ADDRTYPE_NAME      /* SockAddr storing an unresolved host name */
 };
 
+/*
+ * NiTTY: RuTTY-style session script modes and CRLF handling (must match
+ * conf-enums.h storage values).
+ */
+enum {
+    NITTY_SCRIPT_STOP = 0,
+    NITTY_SCRIPT_PLAY = 1,
+    NITTY_SCRIPT_RECORD = 2,
+};
+
+enum {
+    NITTY_SCRIPT_CRLF_OFF = 0,
+    NITTY_SCRIPT_CRLF_NOLF = 1,
+    NITTY_SCRIPT_CRLF_CR = 2,
+    NITTY_SCRIPT_CRLF_REC = 3,
+};
+
 /* Backend flags */
 #define BACKEND_RESIZE_FORBIDDEN    0x01   /* Backend does not allow
                                               resizing terminal */
@@ -2394,6 +2411,9 @@ void cmdline_run_saved(Conf *);
 void cmdline_cleanup(void);
 SeatPromptResult cmdline_get_passwd_input(
     prompts_t *p, cmdline_get_passwd_input_state *state, bool restartable);
+SeatPromptResult nitty_conf_get_passwd_input(
+    prompts_t *p, Conf *conf, cmdline_get_passwd_input_state *state,
+    bool restartable);
 bool cmdline_host_ok(Conf *);
 bool cmdline_verbose(void);
 bool cmdline_loaded_session(void);

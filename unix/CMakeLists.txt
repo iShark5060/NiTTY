@@ -210,7 +210,7 @@ if(GTK_FOUND)
     ${CMAKE_SOURCE_DIR}/stubs/no-dit.c
     ${CMAKE_SOURCE_DIR}/proxy/nocproxy.c
     ${CMAKE_SOURCE_DIR}/proxy/nosshproxy.c)
-  be_list(puttytel PuTTYtel SERIAL OTHERBACKENDS)
+  be_list(puttytel NiTTYtel SERIAL OTHERBACKENDS)
   target_link_libraries(puttytel
     guiterminal eventloop otherbackends settings network utils
     puttyxpms

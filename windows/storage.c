@@ -5,10 +5,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <assert.h>
 #include "putty.h"
 #include "storage.h"
+#include "nitty_portable.h"
+#include "nitty_sessfile.h"
+#include "nitty_sesspass.h"
 
 #include <shlobj.h>
 #ifndef CSIDL_APPDATA
@@ -17,6 +21,13 @@
 #ifndef CSIDL_LOCAL_APPDATA
 #define CSIDL_LOCAL_APPDATA 0x001c
 #endif
+
+#include <windows.h>
+
+static bool nitty_file_exists(const char *path)
+{
+    return path && GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+}
 
 static const char *const reg_jumplist_key = PUTTY_REG_POS "\\Jumplist";
 static const char *const reg_jumplist_value = "Recent sessions";
@@ -30,6 +41,9 @@ DECL_WINDOWS_FUNCTION(static, HRESULT, SHGetFolderPathA,
 
 struct settings_w {
     HKEY sesskey;
+    NittySettingsList nitty_list;
+    char *nitty_basefile;
+    char *nitty_sessname;
 };
 
 settings_w *open_settings_w(const char *sessionname, char **errmsg)
@@ -39,43 +53,112 @@ settings_w *open_settings_w(const char *sessionname, char **errmsg)
     if (!sessionname || !*sessionname)
         sessionname = "Default Settings";
 
-    strbuf *sb = strbuf_new();
-    escape_registry_key(sessionname, sb);
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char munged[4096];
+        char *basefile, *sessdir;
+        settings_w *handle = snew(settings_w);
 
-    HKEY sesskey = create_regkey(HKEY_CURRENT_USER, puttystr, sb->s);
-    if (!sesskey) {
-        *errmsg = dupprintf("Unable to create registry key\n"
-                            "HKEY_CURRENT_USER\\%s\\%s", puttystr, sb->s);
-        strbuf_free(sb);
-        return NULL;
+        handle->sesskey = NULL;
+        handle->nitty_list = nitty_settings_list_new();
+        handle->nitty_sessname = dupstr(sessionname);
+        nitty_mungestr(sessionname, munged);
+        basefile = dupcat(munged, nitty_portable_session_suffix(), NULL);
+        handle->nitty_basefile = basefile;
+        sessdir = dupstr(nitty_portable_sessdir());
+        nitty_portable_ensure_dir(sessdir);
+        sfree(sessdir);
+        return handle;
     }
-    strbuf_free(sb);
 
-    settings_w *handle = snew(settings_w);
-    handle->sesskey = sesskey;
-    return handle;
+    {
+        strbuf *sb = strbuf_new();
+        HKEY sesskey;
+
+        escape_registry_key(sessionname, sb);
+
+        sesskey = create_regkey(HKEY_CURRENT_USER, puttystr, sb->s);
+        if (!sesskey) {
+            *errmsg = dupprintf("Unable to create registry key\n"
+                                "HKEY_CURRENT_USER\\%s\\%s", puttystr, sb->s);
+            strbuf_free(sb);
+            return NULL;
+        }
+        strbuf_free(sb);
+
+        {
+            settings_w *handle = snew(settings_w);
+
+            handle->sesskey = sesskey;
+            handle->nitty_list = NULL;
+            handle->nitty_basefile = NULL;
+            handle->nitty_sessname = dupstr(sessionname);
+            return handle;
+        }
+    }
 }
 
 void write_setting_s(settings_w *handle, const char *key, const char *value)
 {
-    if (handle)
-        put_reg_sz(handle->sesskey, key, value);
+    char *enc = NULL;
+    const char *wval = value;
+
+    if (!handle)
+        return;
+    if (handle->nitty_sessname && key && !strcmp(key, "Password") &&
+        value && *value) {
+        enc = nitty_sesspass_encrypt_for_save(handle->nitty_sessname, value);
+        wval = enc;
+    }
+    if (handle->nitty_list) {
+        nitty_settings_add(handle->nitty_list, key, wval);
+        sfree(enc);
+        return;
+    }
+    put_reg_sz(handle->sesskey, key, wval);
+    sfree(enc);
 }
 
 void write_setting_i(settings_w *handle, const char *key, int value)
 {
-    if (handle)
-        put_reg_dword(handle->sesskey, key, value);
+    char buf[32];
+
+    if (!handle)
+        return;
+    if (handle->nitty_list) {
+        sprintf(buf, "%d", value);
+        nitty_settings_add(handle->nitty_list, key, buf);
+        return;
+    }
+    put_reg_dword(handle->sesskey, key, value);
 }
 
 void close_settings_w(settings_w *handle)
 {
+    if (!handle)
+        return;
+    if (handle->nitty_list) {
+        char *path;
+
+        nitty_portable_init();
+        path = dupcat(nitty_portable_sessdir(), "\\", handle->nitty_basefile, NULL);
+        nitty_settings_save_file(handle->nitty_list, path);
+        sfree(path);
+        nitty_settings_list_free(handle->nitty_list);
+        sfree(handle->nitty_basefile);
+        sfree(handle->nitty_sessname);
+        sfree(handle);
+        return;
+    }
     close_regkey(handle->sesskey);
+    sfree(handle->nitty_sessname);
     sfree(handle);
 }
 
 struct settings_r {
     HKEY sesskey;
+    NittySettingsList nitty_list;
+    char *nitty_sessname;
 };
 
 settings_r *open_settings_r(const char *sessionname)
@@ -83,33 +166,89 @@ settings_r *open_settings_r(const char *sessionname)
     if (!sessionname || !*sessionname)
         sessionname = "Default Settings";
 
-    strbuf *sb = strbuf_new();
-    escape_registry_key(sessionname, sb);
-    HKEY sesskey = open_regkey_ro(HKEY_CURRENT_USER, puttystr, sb->s);
-    strbuf_free(sb);
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char munged[4096];
+        char *path;
+        bool exists;
+        NittySettingsList list = nitty_settings_list_new();
+        settings_r *handle;
 
-    if (!sesskey)
-        return NULL;
+        nitty_mungestr(sessionname, munged);
+        path = dupcat(nitty_portable_sessdir(), "\\", munged,
+                      nitty_portable_session_suffix(), NULL);
+        exists = nitty_file_exists(path);
+        if (exists)
+            nitty_settings_load_file(list, path);
 
-    settings_r *handle = snew(settings_r);
-    handle->sesskey = sesskey;
-    return handle;
+        if (!exists && strcmp(sessionname, "Default Settings")) {
+            nitty_settings_list_free(list);
+            sfree(path);
+            return NULL;
+        }
+        sfree(path);
+
+        handle = snew(settings_r);
+        handle->sesskey = NULL;
+        handle->nitty_list = list;
+        handle->nitty_sessname = dupstr(sessionname);
+        return handle;
+    }
+
+    {
+        strbuf *sb = strbuf_new();
+        HKEY sesskey;
+
+        escape_registry_key(sessionname, sb);
+        sesskey = open_regkey_ro(HKEY_CURRENT_USER, puttystr, sb->s);
+        strbuf_free(sb);
+
+        if (!sesskey)
+            return NULL;
+
+        {
+            settings_r *handle = snew(settings_r);
+
+            handle->sesskey = sesskey;
+            handle->nitty_list = NULL;
+            handle->nitty_sessname = dupstr(sessionname);
+            return handle;
+        }
+    }
 }
 
 char *read_setting_s(settings_r *handle, const char *key)
 {
+    char *raw, *out;
+
     if (!handle)
         return NULL;
-    return get_reg_sz(handle->sesskey, key);
+    if (handle->nitty_list)
+        raw = nitty_settings_get_str_dup(handle->nitty_list, key);
+    else
+        raw = get_reg_sz(handle->sesskey, key);
+
+    if (!raw)
+        return NULL;
+    if (handle->nitty_sessname && key && !strcmp(key, "Password") && *raw) {
+        out = nitty_sesspass_decrypt_after_load(handle->nitty_sessname, raw);
+        sfree(raw);
+        return out;
+    }
+    return raw;
 }
 
 int read_setting_i(settings_r *handle, const char *key, int defvalue)
 {
     DWORD val;
-    if (!handle || !get_reg_dword(handle->sesskey, key, &val))
+
+    if (!handle)
         return defvalue;
-    else
-        return val;
+    if (handle->nitty_list)
+        return nitty_settings_get_int(handle->nitty_list, key, defvalue);
+    if (!get_reg_dword(handle->sesskey, key, &val))
+        return defvalue;
+    return val;
 }
 
 FontSpec *read_setting_fontspec(settings_r *handle, const char *name)
@@ -204,62 +343,164 @@ void write_setting_filename(settings_w *handle,
 
 void close_settings_r(settings_r *handle)
 {
-    if (handle) {
-        close_regkey(handle->sesskey);
+    if (!handle)
+        return;
+    if (handle->nitty_list) {
+        nitty_settings_list_free(handle->nitty_list);
+        sfree(handle->nitty_sessname);
         sfree(handle);
+        return;
     }
+    close_regkey(handle->sesskey);
+    sfree(handle->nitty_sessname);
+    sfree(handle);
 }
 
 void del_settings(const char *sessionname)
 {
-    HKEY rkey = open_regkey_rw(HKEY_CURRENT_USER, puttystr);
-    if (!rkey)
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char munged[4096];
+        char *path;
+
+        nitty_mungestr(sessionname, munged);
+        path = dupcat(nitty_portable_sessdir(), "\\", munged,
+                      nitty_portable_session_suffix(), NULL);
+        DeleteFileA(path);
+        sfree(path);
+        remove_session_from_jumplist(sessionname);
         return;
+    }
 
-    strbuf *sb = strbuf_new();
-    escape_registry_key(sessionname, sb);
-    del_regkey(rkey, sb->s);
-    strbuf_free(sb);
+    {
+        HKEY rkey = open_regkey_rw(HKEY_CURRENT_USER, puttystr);
 
-    close_regkey(rkey);
+        if (!rkey)
+            return;
 
-    remove_session_from_jumplist(sessionname);
+        {
+            strbuf *sb = strbuf_new();
+
+            escape_registry_key(sessionname, sb);
+            del_regkey(rkey, sb->s);
+            strbuf_free(sb);
+        }
+
+        close_regkey(rkey);
+
+        remove_session_from_jumplist(sessionname);
+    }
 }
 
 struct settings_e {
     HKEY key;
     int i;
+    bool nitty;
+    HANDLE nitty_find;
+    WIN32_FIND_DATAA nitty_fd;
+    bool nitty_first;
 };
 
 settings_e *enum_settings_start(void)
 {
-    HKEY key = open_regkey_ro(HKEY_CURRENT_USER, puttystr);
-    if (!key)
-        return NULL;
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *pattern;
+        settings_e *e = snew(settings_e);
 
-    settings_e *e = snew(settings_e);
-    if (e) {
-        e->key = key;
+        nitty_portable_ensure_dir(nitty_portable_sessdir());
+        pattern = dupcat(nitty_portable_sessdir(), "\\*", NULL);
+        e->nitty = true;
+        e->nitty_first = true;
+        e->key = NULL;
         e->i = 0;
+        e->nitty_find = FindFirstFileA(pattern, &e->nitty_fd);
+        sfree(pattern);
+        if (e->nitty_find == INVALID_HANDLE_VALUE) {
+            sfree(e);
+            return NULL;
+        }
+        return e;
     }
 
-    return e;
+    {
+        HKEY key = open_regkey_ro(HKEY_CURRENT_USER, puttystr);
+        settings_e *e;
+
+        if (!key)
+            return NULL;
+
+        e = snew(settings_e);
+        e->key = key;
+        e->i = 0;
+        e->nitty = false;
+        e->nitty_find = INVALID_HANDLE_VALUE;
+        return e;
+    }
 }
 
 bool enum_settings_next(settings_e *e, strbuf *sb)
 {
-    char *name = enum_regkey(e->key, e->i);
-    if (!name)
-        return false;
+    if (e->nitty) {
+        const char *suf = nitty_portable_session_suffix();
+        size_t suflen = strlen(suf);
 
-    unescape_registry_key(name, sb);
-    sfree(name);
-    e->i++;
-    return true;
+        while (1) {
+            BOOL ok;
+            char dec[512];
+            char *namebuf;
+
+            if (!e->nitty_first) {
+                ok = FindNextFileA(e->nitty_find, &e->nitty_fd);
+                if (!ok)
+                    return false;
+            } else {
+                e->nitty_first = false;
+            }
+
+            if (e->nitty_fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                continue;
+            if (!strcmp(e->nitty_fd.cFileName, ".") ||
+                !strcmp(e->nitty_fd.cFileName, ".."))
+                continue;
+
+            namebuf = dupstr(e->nitty_fd.cFileName);
+            if (suflen > 0 && strlen(namebuf) > suflen &&
+                !strcmp(namebuf + strlen(namebuf) - suflen, suf))
+                namebuf[strlen(namebuf) - suflen] = '\0';
+
+            nitty_unmungestr(namebuf, dec, sizeof dec);
+            sfree(namebuf);
+
+            /*
+             * Append this session name like registry and Unix dir enumeration:
+             * get_sesslist() chains enum_settings_next + put_byte('\\0').
+             */
+            put_datapl(sb, ptrlen_from_asciz(dec));
+            return true;
+        }
+    }
+
+    {
+        char *name = enum_regkey(e->key, e->i);
+
+        if (!name)
+            return false;
+
+        unescape_registry_key(name, sb);
+        sfree(name);
+        e->i++;
+        return true;
+    }
 }
 
 void enum_settings_finish(settings_e *e)
 {
+    if (e->nitty) {
+        FindClose(e->nitty_find);
+        sfree(e);
+        return;
+    }
     close_regkey(e->key);
     sfree(e);
 }
@@ -271,6 +512,68 @@ static void hostkey_regname(strbuf *sb, const char *hostname,
     escape_registry_key(hostname, sb);
 }
 
+static int nitty_check_host_key_file(strbuf *regname, const char *key)
+{
+    char *packed;
+    char *path;
+    FILE *fp;
+    char *buf;
+    long sz;
+    int cmp;
+
+    packed = snewn(regname->len * 3 + 16, char);
+    nitty_packstr(regname->s, packed);
+    path = dupcat(nitty_portable_sshkeysdir(), "\\", packed, NULL);
+    sfree(packed);
+    if (!nitty_file_exists(path)) {
+        sfree(path);
+        return 1;
+    }
+    fp = fopen(path, "rb");
+    if (!fp) {
+        sfree(path);
+        return 1;
+    }
+    fseek(fp, 0, SEEK_END);
+    sz = ftell(fp);
+    if (sz < 0) {
+        fclose(fp);
+        sfree(path);
+        return 1;
+    }
+    fseek(fp, 0, SEEK_SET);
+    buf = snewn(sz + 1, char);
+    fread(buf, 1, (size_t)sz, fp);
+    buf[sz] = '\0';
+    fclose(fp);
+    sfree(path);
+
+    cmp = strcmp(buf, key);
+    sfree(buf);
+    if (cmp)
+        return 2;
+    return 0;
+}
+
+static void nitty_store_host_key_file(strbuf *regname, const char *key)
+{
+    char *packed;
+    char *path;
+    FILE *fp;
+
+    packed = snewn(regname->len * 3 + 16, char);
+    nitty_packstr(regname->s, packed);
+    nitty_portable_ensure_dir(nitty_portable_sshkeysdir());
+    path = dupcat(nitty_portable_sshkeysdir(), "\\", packed, NULL);
+    sfree(packed);
+    fp = fopen(path, "wb");
+    if (fp) {
+        fwrite(key, 1, strlen(key), fp);
+        fclose(fp);
+    }
+    sfree(path);
+}
+
 int check_stored_host_key(const char *hostname, int port,
                           const char *keytype, const char *key)
 {
@@ -280,8 +583,17 @@ int check_stored_host_key(const char *hostname, int port,
     strbuf *regname = strbuf_new();
     hostkey_regname(regname, hostname, port, keytype);
 
-    HKEY rkey = open_regkey_ro(HKEY_CURRENT_USER,
-                               PUTTY_REG_POS "\\SshHostKeys");
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        int r = nitty_check_host_key_file(regname, key);
+
+        strbuf_free(regname);
+        return r;
+    }
+
+    {
+        HKEY rkey = open_regkey_ro(HKEY_CURRENT_USER,
+                                   PUTTY_REG_POS "\\SshHostKeys");
     if (!rkey) {
         strbuf_free(regname);
         return 1;                      /* key does not exist in registry */
@@ -348,19 +660,23 @@ int check_stored_host_key(const char *hostname, int port,
         sfree(oldstyle);
     }
 
-    close_regkey(rkey);
+        close_regkey(rkey);
 
-    int compare = otherstr ? strcmp(otherstr, key) : -1;
+        {
+            bool key_absent = !otherstr;
+            int compare = otherstr ? strcmp(otherstr, key) : -1;
 
-    sfree(otherstr);
-    strbuf_free(regname);
+            sfree(otherstr);
+            strbuf_free(regname);
 
-    if (!otherstr)
-        return 1;                      /* key does not exist in registry */
-    else if (compare)
-        return 2;                      /* key is different in registry */
-    else
-        return 0;                      /* key matched OK in registry */
+            if (key_absent)
+                return 1;              /* key does not exist in registry */
+            else if (compare)
+                return 2;              /* key is different in registry */
+            else
+                return 0;              /* key matched OK in registry */
+        }
+    }
 }
 
 bool have_ssh_host_key(const char *hostname, int port,
@@ -379,100 +695,289 @@ void store_host_key(Seat *seat, const char *hostname, int port,
     strbuf *regname = strbuf_new();
     hostkey_regname(regname, hostname, port, keytype);
 
-    HKEY rkey = create_regkey(HKEY_CURRENT_USER,
-                              PUTTY_REG_POS "\\SshHostKeys");
-    if (rkey) {
-        put_reg_sz(rkey, regname->s, key);
-        close_regkey(rkey);
-    } /* else key does not exist in registry */
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        nitty_store_host_key_file(regname, key);
+        strbuf_free(regname);
+        return;
+    }
 
-    strbuf_free(regname);
+    {
+        HKEY rkey = create_regkey(HKEY_CURRENT_USER,
+                                  PUTTY_REG_POS "\\SshHostKeys");
+
+        if (rkey) {
+            put_reg_sz(rkey, regname->s, key);
+            close_regkey(rkey);
+        } /* else key does not exist in registry */
+
+        strbuf_free(regname);
+    }
+    (void)seat;
+}
+
+/*
+ * Filename encoding matches Unix PuTTY (~/.config/putty/sshhostcas): safe
+ * characters opt-in, others %-encoded (see unix/storage.c make_session_filename).
+ */
+static void nitty_hostca_make_filename(const char *in, strbuf *out)
+{
+    static const char hex[16] = "0123456789ABCDEF";
+
+    if (!in || !*in)
+        in = "unnamed";
+
+    while (*in) {
+        if (*in!='+' && *in!='-' && *in!='.' && *in!='@' && *in!='_' &&
+            !(*in >= '0' && *in <= '9') &&
+            !(*in >= 'A' && *in <= 'Z') &&
+            !(*in >= 'a' && *in <= 'z')) {
+            put_byte(out, '%');
+            put_byte(out, hex[((unsigned char) *in) >> 4]);
+            put_byte(out, hex[((unsigned char) *in) & 15]);
+        } else
+            put_byte(out, *in);
+        in++;
+    }
+}
+
+static void nitty_hostca_decode_filename(const char *in, strbuf *out)
+{
+    while (*in) {
+        if (*in == '%' && in[1] && in[2]) {
+            int i, j;
+
+            i = in[1] - '0';
+            i -= (i > 9 ? 7 : 0);
+            j = in[2] - '0';
+            j -= (j > 9 ? 7 : 0);
+
+            put_byte(out, (i << 4) + j);
+            in += 3;
+        } else {
+            put_byte(out, *in++);
+        }
+    }
+}
+
+static char *nitty_hostca_filepath(const char *name)
+{
+    strbuf *sb = strbuf_new();
+
+    put_fmt(sb, "%s\\", nitty_portable_cadir());
+    nitty_hostca_make_filename(name, sb);
+    return strbuf_to_str(sb);
+}
+
+static host_ca *host_ca_load_fp(FILE *fp, const char *name)
+{
+    host_ca *hca = host_ca_new();
+    hca->name = dupstr(name);
+
+    char *line;
+    CertExprBuilder *eb = NULL;
+
+    while ((line = fgetline(fp))) {
+        char *value = strchr(line, '=');
+
+        if (!value) {
+            sfree(line);
+            continue;
+        }
+        *value++ = '\0';
+        value[strcspn(value, "\r\n")] = '\0';
+
+        if (!strcmp(line, "PublicKey")) {
+            hca->ca_public_key = base64_decode_sb(ptrlen_from_asciz(value));
+        } else if (!strcmp(line, "MatchHosts")) {
+            if (!eb)
+                eb = cert_expr_builder_new();
+            cert_expr_builder_add(eb, value);
+        } else if (!strcmp(line, "Validity")) {
+            hca->validity_expression = strbuf_to_str(
+                percent_decode_sb(ptrlen_from_asciz(value)));
+        } else if (!strcmp(line, "PermitRSASHA1")) {
+            hca->opts.permit_rsa_sha1 = atoi(value);
+        } else if (!strcmp(line, "PermitRSASHA256")) {
+            hca->opts.permit_rsa_sha256 = atoi(value);
+        } else if (!strcmp(line, "PermitRSASHA512")) {
+            hca->opts.permit_rsa_sha512 = atoi(value);
+        }
+
+        sfree(line);
+    }
+
+    if (eb) {
+        if (!hca->validity_expression) {
+            hca->validity_expression = cert_expr_expression(eb);
+        }
+        cert_expr_builder_free(eb);
+    }
+
+    return hca;
 }
 
 struct host_ca_enum {
+    bool nitty_file;
     HKEY key;
     int i;
+    HANDLE find_handle;
+    WIN32_FIND_DATAA find_data;
+    bool find_first;
 };
 
 host_ca_enum *enum_host_ca_start(void)
 {
-    host_ca_enum *e;
-    HKEY key;
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *pattern;
+        host_ca_enum *e = snew(host_ca_enum);
 
-    if (!(key = open_regkey_ro(HKEY_CURRENT_USER, host_ca_key)))
-        return NULL;
+        nitty_portable_ensure_dir(nitty_portable_cadir());
+        pattern = dupcat(nitty_portable_cadir(), "\\*", NULL);
+        e->nitty_file = true;
+        e->key = NULL;
+        e->i = 0;
+        e->find_first = true;
+        e->find_handle = FindFirstFileA(pattern, &e->find_data);
+        sfree(pattern);
+        if (e->find_handle == INVALID_HANDLE_VALUE) {
+            sfree(e);
+            return NULL;
+        }
+        return e;
+    }
 
-    e = snew(host_ca_enum);
-    e->key = key;
-    e->i = 0;
+    {
+        host_ca_enum *e;
+        HKEY key;
 
-    return e;
+        if (!(key = open_regkey_ro(HKEY_CURRENT_USER, host_ca_key)))
+            return NULL;
+
+        e = snew(host_ca_enum);
+        e->nitty_file = false;
+        e->key = key;
+        e->i = 0;
+        e->find_handle = INVALID_HANDLE_VALUE;
+        return e;
+    }
 }
 
 bool enum_host_ca_next(host_ca_enum *e, strbuf *sb)
 {
-    char *regbuf = enum_regkey(e->key, e->i);
-    if (!regbuf)
-        return false;
+    if (e->nitty_file) {
+        while (1) {
+            BOOL ok;
 
-    unescape_registry_key(regbuf, sb);
-    sfree(regbuf);
-    e->i++;
-    return true;
+            if (!e->find_first) {
+                ok = FindNextFileA(e->find_handle, &e->find_data);
+                if (!ok)
+                    return false;
+            } else {
+                e->find_first = false;
+            }
+
+            if (e->find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                continue;
+            if (!strcmp(e->find_data.cFileName, ".") ||
+                !strcmp(e->find_data.cFileName, ".."))
+                continue;
+
+            strbuf_clear(sb);
+            nitty_hostca_decode_filename(e->find_data.cFileName, sb);
+            return true;
+        }
+    }
+
+    {
+        char *regbuf = enum_regkey(e->key, e->i);
+
+        if (!regbuf)
+            return false;
+
+        unescape_registry_key(regbuf, sb);
+        sfree(regbuf);
+        e->i++;
+        return true;
+    }
 }
 
 void enum_host_ca_finish(host_ca_enum *e)
 {
-    close_regkey(e->key);
+    if (e->nitty_file)
+        FindClose(e->find_handle);
+    else
+        close_regkey(e->key);
     sfree(e);
 }
 
 host_ca *host_ca_load(const char *name)
 {
-    strbuf *sb;
-    const char *s;
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *path = nitty_hostca_filepath(name);
+        FILE *fp = fopen(path, "r");
+        host_ca *hca;
 
-    sb = strbuf_new();
-    escape_registry_key(name, sb);
-    HKEY rkey = open_regkey_ro(HKEY_CURRENT_USER, host_ca_key, sb->s);
-    strbuf_free(sb);
+        sfree(path);
+        if (!fp)
+            return NULL;
 
-    if (!rkey)
-        return NULL;
-
-    host_ca *hca = host_ca_new();
-    hca->name = dupstr(name);
-
-    DWORD val;
-
-    if ((s = get_reg_sz(rkey, "PublicKey")) != NULL)
-        hca->ca_public_key = base64_decode_sb(ptrlen_from_asciz(s));
-
-    if ((s = get_reg_sz(rkey, "Validity")) != NULL) {
-        hca->validity_expression = strbuf_to_str(
-            percent_decode_sb(ptrlen_from_asciz(s)));
-    } else if ((sb = get_reg_multi_sz(rkey, "MatchHosts")) != NULL) {
-        BinarySource src[1];
-        BinarySource_BARE_INIT_PL(src, ptrlen_from_strbuf(sb));
-        CertExprBuilder *eb = cert_expr_builder_new();
-
-        const char *wc;
-        while (wc = get_asciz(src), !get_err(src))
-            cert_expr_builder_add(eb, wc);
-
-        hca->validity_expression = cert_expr_expression(eb);
-        cert_expr_builder_free(eb);
+        hca = host_ca_load_fp(fp, name);
+        fclose(fp);
+        return hca;
     }
 
-    if (get_reg_dword(rkey, "PermitRSASHA1", &val))
-        hca->opts.permit_rsa_sha1 = val;
-    if (get_reg_dword(rkey, "PermitRSASHA256", &val))
-        hca->opts.permit_rsa_sha256 = val;
-    if (get_reg_dword(rkey, "PermitRSASHA512", &val))
-        hca->opts.permit_rsa_sha512 = val;
+    {
+        strbuf *sb;
+        const char *s;
 
-    close_regkey(rkey);
-    return hca;
+        sb = strbuf_new();
+        escape_registry_key(name, sb);
+        HKEY rkey = open_regkey_ro(HKEY_CURRENT_USER, host_ca_key, sb->s);
+        strbuf_free(sb);
+
+        if (!rkey)
+            return NULL;
+
+        {
+            host_ca *hca = host_ca_new();
+            hca->name = dupstr(name);
+
+            DWORD val;
+
+            if ((s = get_reg_sz(rkey, "PublicKey")) != NULL)
+                hca->ca_public_key = base64_decode_sb(ptrlen_from_asciz(s));
+
+            if ((s = get_reg_sz(rkey, "Validity")) != NULL) {
+                hca->validity_expression = strbuf_to_str(
+                    percent_decode_sb(ptrlen_from_asciz(s)));
+            } else if ((sb = get_reg_multi_sz(rkey, "MatchHosts")) != NULL) {
+                BinarySource src[1];
+                BinarySource_BARE_INIT_PL(src, ptrlen_from_strbuf(sb));
+                CertExprBuilder *eb = cert_expr_builder_new();
+
+                const char *wc;
+                while (wc = get_asciz(src), !get_err(src))
+                    cert_expr_builder_add(eb, wc);
+
+                hca->validity_expression = cert_expr_expression(eb);
+                cert_expr_builder_free(eb);
+                strbuf_free(sb);
+            }
+
+            if (get_reg_dword(rkey, "PermitRSASHA1", &val))
+                hca->opts.permit_rsa_sha1 = val;
+            if (get_reg_dword(rkey, "PermitRSASHA256", &val))
+                hca->opts.permit_rsa_sha256 = val;
+            if (get_reg_dword(rkey, "PermitRSASHA512", &val))
+                hca->opts.permit_rsa_sha512 = val;
+
+            close_regkey(rkey);
+            return hca;
+        }
+    }
 }
 
 char *host_ca_save(host_ca *hca)
@@ -480,47 +985,118 @@ char *host_ca_save(host_ca *hca)
     if (!*hca->name)
         return dupstr("CA record must have a name");
 
-    strbuf *sb = strbuf_new();
-    escape_registry_key(hca->name, sb);
-    HKEY rkey = create_regkey(HKEY_CURRENT_USER, host_ca_key, sb->s);
-    if (!rkey) {
-        char *err = dupprintf("Unable to create registry key\n"
-                              "HKEY_CURRENT_USER\\%s\\%s", host_ca_key, sb->s);
-        strbuf_free(sb);
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *path, *err;
+        FILE *fp;
+        bool bad;
+
+        nitty_portable_ensure_dir(nitty_portable_cadir());
+        path = nitty_hostca_filepath(hca->name);
+        fp = fopen(path, "wb");
+        if (!fp) {
+            err = dupprintf("Unable to save CA record: opening file '%s': %s",
+                            path, strerror(errno));
+            sfree(path);
+            return err;
+        }
+
+        fprintf(fp, "PublicKey=");
+        base64_encode_fp(fp, ptrlen_from_strbuf(hca->ca_public_key), 0);
+        fprintf(fp, "\n");
+
+        fprintf(fp, "Validity=");
+        percent_encode_fp(fp, ptrlen_from_asciz(hca->validity_expression), NULL);
+        fprintf(fp, "\n");
+
+        fprintf(fp, "PermitRSASHA1=%d\n", (int)hca->opts.permit_rsa_sha1);
+        fprintf(fp, "PermitRSASHA256=%d\n", (int)hca->opts.permit_rsa_sha256);
+        fprintf(fp, "PermitRSASHA512=%d\n", (int)hca->opts.permit_rsa_sha512);
+
+        bad = ferror(fp);
+        if (fclose(fp) < 0)
+            bad = true;
+
+        err = NULL;
+        if (bad)
+            err = dupprintf("Unable to save CA record: writing file '%s': %s",
+                            path, strerror(errno));
+
+        sfree(path);
         return err;
     }
-    strbuf_free(sb);
 
-    strbuf *base64_pubkey = base64_encode_sb(
-        ptrlen_from_strbuf(hca->ca_public_key), 0);
-    put_reg_sz(rkey, "PublicKey", base64_pubkey->s);
-    strbuf_free(base64_pubkey);
+    {
+        strbuf *sb = strbuf_new();
+        escape_registry_key(hca->name, sb);
+        HKEY rkey = create_regkey(HKEY_CURRENT_USER, host_ca_key, sb->s);
+        if (!rkey) {
+            char *err = dupprintf("Unable to create registry key\n"
+                                  "HKEY_CURRENT_USER\\%s\\%s", host_ca_key,
+                                  sb->s);
+            strbuf_free(sb);
+            return err;
+        }
+        strbuf_free(sb);
 
-    strbuf *validity = percent_encode_sb(
-        ptrlen_from_asciz(hca->validity_expression), NULL);
-    put_reg_sz(rkey, "Validity", validity->s);
-    strbuf_free(validity);
+        {
+            strbuf *base64_pubkey = base64_encode_sb(
+                ptrlen_from_strbuf(hca->ca_public_key), 0);
+            put_reg_sz(rkey, "PublicKey", base64_pubkey->s);
+            strbuf_free(base64_pubkey);
 
-    put_reg_dword(rkey, "PermitRSASHA1", hca->opts.permit_rsa_sha1);
-    put_reg_dword(rkey, "PermitRSASHA256", hca->opts.permit_rsa_sha256);
-    put_reg_dword(rkey, "PermitRSASHA512", hca->opts.permit_rsa_sha512);
+            {
+                strbuf *validity = percent_encode_sb(
+                    ptrlen_from_asciz(hca->validity_expression), NULL);
+                put_reg_sz(rkey, "Validity", validity->s);
+                strbuf_free(validity);
+            }
 
-    close_regkey(rkey);
-    return NULL;
+            put_reg_dword(rkey, "PermitRSASHA1", hca->opts.permit_rsa_sha1);
+            put_reg_dword(rkey, "PermitRSASHA256", hca->opts.permit_rsa_sha256);
+            put_reg_dword(rkey, "PermitRSASHA512", hca->opts.permit_rsa_sha512);
+
+            close_regkey(rkey);
+            return NULL;
+        }
+    }
 }
 
 char *host_ca_delete(const char *name)
 {
-    HKEY rkey = open_regkey_rw(HKEY_CURRENT_USER, host_ca_key);
-    if (!rkey)
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *path;
+        bool bad;
+
+        if (!*name)
+            return dupstr("CA record must have a name");
+        path = nitty_hostca_filepath(name);
+        bad = DeleteFileA(path) == 0;
+        if (bad && GetLastError() != ERROR_FILE_NOT_FOUND) {
+            char *err = dupprintf("Unable to delete file '%s': %s", path,
+                                  win_strerror(GetLastError()));
+            sfree(path);
+            return err;
+        }
+        sfree(path);
         return NULL;
+    }
 
-    strbuf *sb = strbuf_new();
-    escape_registry_key(name, sb);
-    del_regkey(rkey, sb->s);
-    strbuf_free(sb);
+    {
+        HKEY rkey = open_regkey_rw(HKEY_CURRENT_USER, host_ca_key);
+        if (!rkey)
+            return NULL;
 
-    return NULL;
+        {
+            strbuf *sb = strbuf_new();
+            escape_registry_key(name, sb);
+            del_regkey(rkey, sb->s);
+            strbuf_free(sb);
+        }
+
+        return NULL;
+    }
 }
 
 /*
@@ -560,6 +1136,13 @@ static bool try_random_seed_and_free(char *path, int action, HANDLE *hout)
 static HANDLE access_random_seed(int action)
 {
     HANDLE rethandle;
+
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        if (try_random_seed(nitty_portable_seedpath(), action, &rethandle))
+            return rethandle;
+        return INVALID_HANDLE_VALUE;
+    }
 
     /*
      * Iterate over a selection of possible random seed paths until
@@ -692,6 +1275,35 @@ void write_random_seed(void *data, int len)
     }
 }
 
+static strbuf *jumplist_merge_multi_sz(strbuf *oldlist, const char *add,
+                                       const char *rem)
+{
+    BinarySource src[1];
+    strbuf *newlist = strbuf_new();
+
+    BinarySource_BARE_INIT_PL(src, ptrlen_from_strbuf(oldlist));
+
+    if (add)
+        put_asciz(newlist, add);
+
+    while (true) {
+        const char *olditem = get_asciz(src);
+        if (get_err(src))
+            break;
+
+        if (!rem || strcmp(olditem, rem) != 0) {
+            settings_r *psettings_tmp = open_settings_r(olditem);
+
+            if (psettings_tmp != NULL) {
+                close_settings_r(psettings_tmp);
+                put_asciz(newlist, olditem);
+            }
+        }
+    }
+
+    return newlist;
+}
+
 /*
  * Internal function supporting the jump list registry code. All the
  * functions to add, remove and read the list have substantially
@@ -704,66 +1316,96 @@ void write_random_seed(void *data, int len)
 static int transform_jumplist_registry(
     const char *add, const char *rem, char **out)
 {
-    HKEY rkey = create_regkey(HKEY_CURRENT_USER, reg_jumplist_key);
-    if (!rkey)
-        return JUMPLISTREG_ERROR_KEYOPENCREATE_FAILURE;
-
-    /* Get current list of saved sessions in the registry. */
-    strbuf *oldlist = get_reg_multi_sz(rkey, reg_jumplist_value);
-    if (!oldlist) {
-        /* Start again with the empty list. */
-        oldlist = strbuf_new();
-        put_data(oldlist, "\0\0", 2);
-    }
-
-    /*
-     * Modify the list, if we're modifying.
-     */
+    strbuf *oldlist;
     bool write_failure = false;
-    if (add || rem) {
-        BinarySource src[1];
-        BinarySource_BARE_INIT_PL(src, ptrlen_from_strbuf(oldlist));
-        strbuf *newlist = strbuf_new();
 
-        /* First add the new item to the beginning of the list. */
-        if (add)
-            put_asciz(newlist, add);
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *recent_path = dupcat(nitty_portable_jumplistdir(),
+                                    "\\RecentSessions", NULL);
+        FILE *fp;
+        long sz;
+        char *raw;
 
-        /* Now add the existing list, taking care to leave out the removed
-         * item, if it was already in the existing list. */
-        while (true) {
-            const char *olditem = get_asciz(src);
-            if (get_err(src))
-                break;
+        nitty_portable_ensure_dir(nitty_portable_jumplistdir());
+        fp = fopen(recent_path, "rb");
+        if (!fp) {
+            oldlist = strbuf_new();
+            put_data(oldlist, "\0\0", 2);
+        } else {
+            fseek(fp, 0, SEEK_END);
+            sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            raw = snewn(sz > 0 ? sz + 2 : 2, char);
+            if (sz > 0)
+                fread(raw, 1, sz, fp);
+            raw[sz] = '\0';
+            raw[sz + 1] = '\0';
+            fclose(fp);
+            oldlist = strbuf_new();
+            put_datapl(oldlist, make_ptrlen(raw, (size_t)sz));
+            if (sz < 2)
+                put_data(oldlist, "\0\0", 2);
+            sfree(raw);
+        }
 
-            if (!rem || strcmp(olditem, rem) != 0) {
-                /* Check if this is a valid session, otherwise don't add. */
-                settings_r *psettings_tmp = open_settings_r(olditem);
-                if (psettings_tmp != NULL) {
-                    close_settings_r(psettings_tmp);
-                    put_asciz(newlist, olditem);
-                }
+        if (add || rem) {
+            strbuf *newlist = jumplist_merge_multi_sz(oldlist, add, rem);
+
+            strbuf_free(oldlist);
+            oldlist = newlist;
+            fp = fopen(recent_path, "wb");
+            if (fp) {
+                fwrite(oldlist->s, 1, oldlist->len, fp);
+                fclose(fp);
+            } else {
+                write_failure = true;
             }
         }
 
-        /* Save the new list to the registry. */
-        write_failure = !put_reg_multi_sz(rkey, reg_jumplist_value, newlist);
+        sfree(recent_path);
 
-        strbuf_free(oldlist);
-        oldlist = newlist;
+        if (out && !write_failure)
+            *out = strbuf_to_str(oldlist);
+        else
+            strbuf_free(oldlist);
+
+        if (write_failure)
+            return JUMPLISTREG_ERROR_VALUEWRITE_FAILURE;
+        return JUMPLISTREG_OK;
     }
 
-    close_regkey(rkey);
+    {
+        HKEY rkey = create_regkey(HKEY_CURRENT_USER, reg_jumplist_key);
 
-    if (out && !write_failure)
-        *out = strbuf_to_str(oldlist);
-    else
-        strbuf_free(oldlist);
+        if (!rkey)
+            return JUMPLISTREG_ERROR_KEYOPENCREATE_FAILURE;
 
-    if (write_failure)
-        return JUMPLISTREG_ERROR_VALUEWRITE_FAILURE;
-    else
+        oldlist = get_reg_multi_sz(rkey, reg_jumplist_value);
+        if (!oldlist) {
+            oldlist = strbuf_new();
+            put_data(oldlist, "\0\0", 2);
+        }
+
+        if (add || rem) {
+            strbuf *newlist = jumplist_merge_multi_sz(oldlist, add, rem);
+
+            strbuf_free(oldlist);
+            oldlist = newlist;
+            write_failure = !put_reg_multi_sz(rkey, reg_jumplist_value, oldlist);
+        }
+
+        close_regkey(rkey);
+
+        if (out && !write_failure)
+            *out = strbuf_to_str(oldlist);
+        else
+            strbuf_free(oldlist);
+
+        if (write_failure)
+            return JUMPLISTREG_ERROR_VALUEWRITE_FAILURE;
         return JUMPLISTREG_OK;
+    }
 }
 
 /* Adds a new entry to the jumplist entries in the registry. */
@@ -790,6 +1432,30 @@ char *get_jumplist_registry_entries (void)
         *(list_value + 1) = '\0';
     }
     return list_value;
+}
+
+static void nitty_delete_all_files_in_dir(const char *dir)
+{
+    char *pat;
+    WIN32_FIND_DATAA fd;
+    HANDLE h;
+
+    if (!dir || !*dir)
+        return;
+    pat = dupcat(dir, "\\*", NULL);
+    h = FindFirstFileA(pat, &fd);
+    sfree(pat);
+    if (h == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            char *fp = dupcat(dir, "\\", fd.cFileName, NULL);
+
+            DeleteFileA(fp);
+            sfree(fp);
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
 }
 
 /*
@@ -824,6 +1490,18 @@ void cleanup_all(void)
      * with this installation of PuTTY.
      */
     clear_jumplist();
+
+    nitty_portable_init();
+    if (nitty_portable_dir_mode()) {
+        char *jp = dupcat(nitty_portable_jumplistdir(), "\\RecentSessions", NULL);
+
+        DeleteFileA(jp);
+        sfree(jp);
+        nitty_delete_all_files_in_dir(nitty_portable_sessdir());
+        nitty_delete_all_files_in_dir(nitty_portable_sshkeysdir());
+        nitty_delete_all_files_in_dir(nitty_portable_cadir());
+        return;
+    }
 
     /* ------------------------------------------------------------
      * Destroy all registry information associated with PuTTY.

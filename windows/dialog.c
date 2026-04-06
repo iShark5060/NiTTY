@@ -13,6 +13,8 @@
 #include "ssh.h"
 #include "putty-rc.h"
 #include "win-gui-seat.h"
+#include "nitty_winfeat.h"
+#include "nitty_config_theme.h"
 #include "storage.h"
 #include "dialog.h"
 #include "licence.h"
@@ -57,6 +59,9 @@ typedef struct PortableDialogStuff {
      * setup.
      */
     bool initialised;
+
+    nitty_config_theme theme;
+    HWND treeview;
 } PortableDialogStuff;
 
 /*
@@ -101,7 +106,18 @@ static void pds_free(PortableDialogStuff *pds)
 static INT_PTR pds_default_dlgproc(PortableDialogStuff *pds, HWND hwnd,
                                    UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (pds->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&pds->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
+      case WM_DESTROY:
+        nitty_config_theme_free(&pds->theme);
+        pds->treeview = NULL;
+        break;
       case WM_LBUTTONUP:
         /*
          * Button release should trigger WM_OK if there was a
@@ -461,6 +477,20 @@ static HTREEITEM treeview_insert(struct treeview_faff *faff,
 
 Filename *dialog_box_demo_screenshot_filename = NULL;
 
+/*
+ * Config dialog layout (dialog units).
+ *
+ * Left column: tree view + buttons stacked below it.
+ * Right column (108+ DLU): panel controls using full height.
+ *
+ * NITTY_CFG_TREE_BTM_DLU is where the tree view ends and buttons begin.
+ * NITTY_CFG_PANEL_BTM_DLU is the bottom of the panel area.
+ */
+#define NITTY_CFG_TREE_TOP_DLU   13
+#define NITTY_CFG_TREE_BTM_DLU   290
+#define NITTY_CFG_BTN_START_DLU  295
+#define NITTY_CFG_PANEL_BTM_DLU  345
+
 /* ctrltrees indices for the main dialog box */
 enum {
     TREE_PANEL, /* things we swap out every time treeview selects a new pane */
@@ -484,7 +514,15 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
       case WM_INITDIALOG:
         pds_initdialog_start(pds, hwnd);
 
-        pds_create_controls(pds, TREE_BASE, IDCX_STDBASE, 3, 3, 235, "");
+        /*
+         * Theme must exist before any child HWND is created: WM_CTLCOLOR*
+         * is sent while controls are created; if theme.inited is still
+         * false, Windows paints grey/white and that appearance can stick.
+         */
+        nitty_config_theme_init(&pds->theme);
+
+        pds_create_controls(pds, TREE_BASE, IDCX_STDBASE, 3,
+                              295, NITTY_CFG_BTN_START_DLU, "");
 
         SendMessage(hwnd, WM_SETICON, (WPARAM) ICON_BIG,
                     (LPARAM) LoadIcon(hinst, MAKEINTRESOURCE(IDI_CFGICON)));
@@ -500,7 +538,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             HWND tvstatic;
 
             r.left = 3;
-            r.right = r.left + 95;
+            r.right = r.left + 100;
             r.top = 3;
             r.bottom = r.top + 10;
             MapDialogRect(hwnd, &r);
@@ -514,9 +552,10 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             SendMessage(tvstatic, WM_SETFONT, font, MAKELPARAM(true, 0));
 
             r.left = 3;
-            r.right = r.left + 95;
-            r.top = 13;
-            r.bottom = r.top + 219;
+            r.right = r.left + 100;
+            r.top = NITTY_CFG_TREE_TOP_DLU;
+            r.bottom = r.top + (NITTY_CFG_TREE_BTM_DLU -
+                                NITTY_CFG_TREE_TOP_DLU);
             MapDialogRect(hwnd, &r);
             treeview = CreateWindowEx(WS_EX_CLIENTEDGE, WC_TREEVIEW, "",
                                       WS_CHILD | WS_VISIBLE |
@@ -531,6 +570,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             SendMessage(treeview, WM_SETFONT, font, MAKELPARAM(true, 0));
             tvfaff.treeview = treeview;
             memset(tvfaff.lastat, 0, sizeof(tvfaff.lastat));
+            pds->treeview = treeview;
         }
 
         /*
@@ -593,14 +633,35 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
              */
             assert(firstpath);   /* config.c must have given us _something_ */
             pds_create_controls(pds, TREE_PANEL, IDCX_PANELBASE,
-                                100, 3, 13, firstpath);
+                                108, 3, 13, firstpath);
             dlg_refresh(NULL, pds->dp);    /* and set up control values */
         }
 
         if (dialog_box_demo_screenshot_filename)
             SetTimer(hwnd, DEMO_SCREENSHOT_TIMER_ID, TICKSPERSEC, NULL);
 
+        nitty_config_theme_apply_tree(pds->treeview, &pds->theme);
+        nitty_config_theme_apply_children(hwnd, &pds->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
         pds_initdialog_finish(pds);
+        return 0;
+
+      case WM_SETTINGCHANGE:
+        if (lParam) {
+#if defined(UNICODE) || defined(_UNICODE)
+            if (!wcscmp((wchar_t *)lParam, L"ImmersiveColorSet"))
+#else
+            if (!strcmp((char *)lParam, "ImmersiveColorSet"))
+#endif
+            {
+                nitty_config_theme_refresh(&pds->theme, pds->treeview, hwnd);
+                nitty_apply_win11_window_chrome(hwnd);
+            }
+        }
         return 0;
 
       case WM_TIMER:
@@ -636,14 +697,18 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
                 return 0;
 
             i = TreeView_GetSelection(((LPNMHDR) lParam)->hwndFrom);
-
-            SendMessage (hwnd, WM_SETREDRAW, false, 0);
+            if (!i)
+                return 0;
 
             item.hItem = i;
             item.pszText = buffer;
             item.cchTextMax = sizeof(buffer);
             item.mask = TVIF_TEXT | TVIF_PARAM;
-            TreeView_GetItem(((LPNMHDR) lParam)->hwndFrom, &item);
+            if (!TreeView_GetItem(((LPNMHDR) lParam)->hwndFrom, &item) ||
+                !item.lParam)
+                return 0;
+
+            SendMessage (hwnd, WM_SETREDRAW, false, 0);
             {
                 /* Destroy all controls in the currently visible panel. */
                 int k;
@@ -664,9 +729,16 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
                 }
             }
             pds_create_controls(pds, TREE_PANEL, IDCX_PANELBASE,
-                                100, 3, 13, (char *)item.lParam);
+                                108, 3, 13, (char *)item.lParam);
 
             dlg_refresh(NULL, pds->dp);    /* set up control values */
+
+            /*
+             * Panel controls were just created; reapply theme (SetWindowTheme
+             * etc.) — otherwise new radios/checkboxes keep themed grey labels.
+             */
+            if (pds->theme.inited)
+                nitty_config_theme_apply_children(hwnd, &pds->theme);
 
             SendMessage (hwnd, WM_SETREDRAW, true, 0);
             InvalidateRect (hwnd, NULL, true);
@@ -725,7 +797,7 @@ bool do_config(Conf *conf)
 
     pds->dp->shortcuts['g'] = true;          /* the treeview: `Cate&gory' */
 
-    ret = ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_MAINBOX), "PuTTYConfigBox",
+    ret = ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_MAINBOX), "NiTTYConfigBox",
                          NULL, GenericMainDlgProc, pds);
 
     pds_free(pds);
@@ -754,7 +826,7 @@ bool do_reconfig(HWND hwnd, Conf *conf, int protcfginfo)
 
     pds->dp->shortcuts['g'] = true;          /* the treeview: `Cate&gory' */
 
-    ret = ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_MAINBOX), "PuTTYConfigBox",
+    ret = ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_MAINBOX), "NiTTYConfigBox",
                          NULL, GenericMainDlgProc, pds);
 
     pds_free(pds);
@@ -1118,7 +1190,7 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
           }
           case IDC_HK_MOREINFO: {
             ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_HK_MOREINFO),
-                           "PuTTYHostKeyMoreInfo", hwnd,
+                           "NiTTYHostKeyMoreInfo", hwnd,
                            HostKeyMoreInfoProc, ctx);
           }
         }
@@ -1155,7 +1227,7 @@ SeatPromptResult win_seat_confirm_ssh_host_key(
     ctx->helpctx = helpctx;
 
     int mbret = ShinyDialogBox(
-        hinst, MAKEINTRESOURCE(IDD_HOSTKEY), "PuTTYHostKeyDialog",
+        hinst, MAKEINTRESOURCE(IDD_HOSTKEY), "NiTTYHostKeyDialog",
         wgs->term_hwnd, HostKeyDialogProc, ctx);
     assert(mbret==IDC_HK_ACCEPT || mbret==IDC_HK_ONCE || mbret==IDCANCEL);
     if (mbret == IDC_HK_ACCEPT) {
@@ -1276,7 +1348,7 @@ void old_keyfile_warning(void)
         "format.\n"
         "\n"
         "You can perform this conversion by loading the key\n"
-        "into PuTTYgen and then saving it again.";
+        "into NiTTYgen and then saving it again.";
 
     char *msg, *title;
     msg = dupprintf(message, appname);
@@ -1299,14 +1371,23 @@ static INT_PTR CAConfigProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
       case WM_INITDIALOG:
         pds_initdialog_start(pds, hwnd);
 
+        nitty_config_theme_init(&pds->theme);
+
         SendMessage(hwnd, WM_SETICON, (WPARAM) ICON_BIG,
                     (LPARAM) LoadIcon(hinst, MAKEINTRESOURCE(IDI_CFGICON)));
 
         centre_window(hwnd);
 
         pds_create_controls(pds, 0, IDCX_PANELBASE, 3, 3, 3, "Main");
-        pds_create_controls(pds, 0, IDCX_STDBASE, 3, 3, 243, "");
+        pds_create_controls(pds, 0, IDCX_STDBASE, 3, 295,
+                              NITTY_CFG_PANEL_BTM_DLU, "");
         dlg_refresh(NULL, pds->dp);    /* and set up control values */
+
+        nitty_config_theme_apply_children(hwnd, &pds->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 
         pds_initdialog_finish(pds);
         return 0;
@@ -1322,7 +1403,7 @@ void show_ca_config_box(dlgparam *dp)
 
     setup_ca_config_box(pds->ctrlbox);
 
-    ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_CA_CONFIG), "PuTTYConfigBox",
+    ShinyDialogBox(hinst, MAKEINTRESOURCE(IDD_CA_CONFIG), "NiTTYConfigBox",
                    dp ? dp->hwnd : NULL, CAConfigProc, pds);
 
     pds_free(pds);

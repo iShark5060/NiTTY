@@ -1808,20 +1808,12 @@ void setup_config_box(struct controlbox *b, bool midsession,
      * Open, Cancel, Apply etc.
      */
     s = ctrl_getset(b, "", "", "");
-    ctrl_columns(s, 5, 20, 20, 20, 20, 20);
     ssd->okbutton = ctrl_pushbutton(s,
                                     (midsession ? "Apply" : "Open"),
                                     (char)(midsession ? 'a' : 'o'),
                                     HELPCTX(no_help),
                                     sessionsaver_handler, P(ssd));
     ssd->okbutton->button.isdefault = true;
-    ssd->okbutton->column = 3;
-    ssd->cancelbutton = ctrl_pushbutton(s, "Cancel", 'c', HELPCTX(no_help),
-                                        sessionsaver_handler, P(ssd));
-    ssd->cancelbutton->button.iscancel = true;
-    ssd->cancelbutton->column = 4;
-    /* We carefully don't close the 5-column part, so that platform-
-     * specific add-ons can put extra buttons alongside Open and Cancel. */
 
     /*
      * The Session panel.
@@ -1918,7 +1910,7 @@ void setup_config_box(struct controlbox *b, bool midsession,
                                 HELPCTX(session_saved),
                                 sessionsaver_handler, P(ssd));
     ssd->listbox->column = 0;
-    ssd->listbox->listbox.height = 7;
+    ssd->listbox->listbox.height = 14;
     if (!midsession) {
         ssd->loadbutton = ctrl_pushbutton(s, "Load", 'l',
                                           HELPCTX(session_saved),
@@ -2548,6 +2540,27 @@ void setup_config_box(struct controlbox *b, bool midsession,
                 sfree(userlabel);
             }
 
+            if (backend_vt_from_proto(PROT_SSH)) {
+                c = ctrl_editbox(
+                    s,
+                    "Auto-login password (stored in plain text; prefer SSH keys)",
+                    'w', 50, HELPCTX(no_help),
+                    conf_editbox_handler, I(CONF_nitty_autologin_password),
+                    ED_STR);
+                c->editbox.password = true;
+                ctrl_editbox(s, "Remote command:", 'm', 100,
+                             HELPCTX(ssh_command),
+                             conf_editbox_handler, I(CONF_remote_cmd), ED_STR);
+                ctrl_filesel(s, "Login script file:", 'f',
+                             FILTER_ALL_FILES, false, "Select script file",
+                             HELPCTX(no_help),
+                             conf_filesel_handler, I(CONF_nitty_script_filename));
+                ctrl_text(s,
+                          "Script playback options (wait for prompt, delays, etc.) "
+                          "are under NiTTY: RuTTY-style session scripts.",
+                          HELPCTX(no_help));
+            }
+
             s = ctrl_getset(b, "Connection/Data", "term",
                             "Terminal details");
             ctrl_editbox(s, "Terminal-type string", 't', 50,
@@ -2687,12 +2700,6 @@ void setup_config_box(struct controlbox *b, bool midsession,
 
         if (!midsession) {
 
-            s = ctrl_getset(b, "Connection/SSH", "data",
-                            "Data to send to the server");
-            ctrl_editbox(s, "Remote command:", 'r', 100,
-                         HELPCTX(ssh_command),
-                         conf_editbox_handler, I(CONF_remote_cmd), ED_STR);
-
             s = ctrl_getset(b, "Connection/SSH", "protocol", "Protocol options");
             ctrl_checkbox(s, "Don't start a shell or command at all", 'n',
                           HELPCTX(ssh_noshell),
@@ -2710,7 +2717,7 @@ void setup_config_box(struct controlbox *b, bool midsession,
         }
 
         if (!midsession) {
-            s = ctrl_getset(b, "Connection/SSH", "sharing", "Sharing an SSH connection between PuTTY tools");
+            s = ctrl_getset(b, "Connection/SSH", "sharing", "Sharing an SSH connection between NiTTY tools");
 
             ctrl_checkbox(s, "Share SSH connections if possible", 's',
                           HELPCTX(ssh_share),
@@ -2723,7 +2730,7 @@ void setup_config_box(struct controlbox *b, bool midsession,
                           HELPCTX(ssh_share),
                           conf_checkbox_handler,
                           I(CONF_ssh_connection_sharing_upstream));
-            ctrl_checkbox(s, "Downstream (connecting to the upstream PuTTY)", 'd',
+            ctrl_checkbox(s, "Downstream (connecting to the upstream NiTTY)", 'd',
                           HELPCTX(ssh_share),
                           conf_checkbox_handler,
                           I(CONF_ssh_connection_sharing_downstream));
@@ -3167,7 +3174,7 @@ void setup_config_box(struct controlbox *b, bool midsession,
             ctrl_droplist(s, "Handles SSH-2 key re-exchange badly", 'k', 20,
                           HELPCTX(ssh_bugs_rekey2),
                           sshbug_handler, I(CONF_sshbug_rekey2));
-            ctrl_droplist(s, "Chokes on PuTTY's SSH-2 'winadj' requests", 'j',
+            ctrl_droplist(s, "Chokes on NiTTY's SSH-2 'winadj' requests", 'j',
                           20, HELPCTX(ssh_bugs_winadj),
                           sshbug_handler, I(CONF_sshbug_winadj));
             ctrl_droplist(s, "Replies to requests on closed channels", 'q', 20,
@@ -3183,7 +3190,7 @@ void setup_config_box(struct controlbox *b, bool midsession,
                           HELPCTX(ssh_bugs_dropstart),
                           sshbug_handler_manual_only,
                           I(CONF_sshbug_dropstart));
-            ctrl_droplist(s, "Chokes on PuTTY's full KEXINIT", 'p', 20,
+            ctrl_droplist(s, "Chokes on NiTTY's full KEXINIT", 'p', 20,
                           HELPCTX(ssh_bugs_filter_kexinit),
                           sshbug_handler_manual_only,
                           I(CONF_sshbug_filter_kexinit));

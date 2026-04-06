@@ -49,6 +49,7 @@ add_sources_from_current_dir(utils
   memory.c
   memxor.c
   nullstrcmp.c
+  nitty_sesspass.c
   out_of_memory.c
   parse_blocksize.c
   percent_decode.c

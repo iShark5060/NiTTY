@@ -20,6 +20,13 @@ static void about_handler(dlgcontrol *ctrl, dlgparam *dlg,
     }
 }
 
+static void close_handler(dlgcontrol *ctrl, dlgparam *dlg,
+                          void *data, int event)
+{
+    if (event == EVENT_ACTION)
+        dlg_end(dlg, 0);
+}
+
 static void help_handler(dlgcontrol *ctrl, dlgparam *dlg,
                          void *data, int event)
 {
@@ -49,20 +56,18 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, bool has_help,
     dlgcontrol *c;
     char *str;
 
+    s = ctrl_getset(b, "", "", "");
     if (!midsession) {
-        /*
-         * Add the About and Help buttons to the standard panel.
-         */
-        s = ctrl_getset(b, "", "", "");
         c = ctrl_pushbutton(s, "About", 'a', HELPCTX(no_help),
                             about_handler, P(hwndp));
-        c->column = 0;
         if (has_help) {
             c = ctrl_pushbutton(s, "Help", 'h', HELPCTX(no_help),
                                 help_handler, P(hwndp));
-            c->column = 1;
         }
     }
+    c = ctrl_pushbutton(s, "Close", 'c', HELPCTX(no_help),
+                        close_handler, P(NULL));
+    c->button.iscancel = true;
 
     /*
      * Full-screen mode is a Windows peculiarity; hence
@@ -381,4 +386,69 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, bool has_help,
                      HELPCTX(ssh_tunnels_xauthority),
                      conf_filesel_handler, I(CONF_xauthfile));
     }
+
+    /*
+     * NiTTY: scripts, transparency, tray, hyperlinks.
+     */
+    s = ctrl_getset(b, "NiTTY", "window", "NiTTY window options");
+    ctrl_editbox(s, "Window transparency (0 = off, 1-255 = alpha):", 't', 50,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_window_alpha), ED_INT);
+    ctrl_checkbox(s, "Minimize to system tray instead of taskbar", 'm',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_minimize_to_tray));
+
+    s = ctrl_getset(b, "NiTTY", "hyperlinks", "Clickable URLs");
+    ctrl_checkbox(s, "Detect URLs in terminal text", 'u',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_url_enable));
+    ctrl_checkbox(s, "Require Ctrl+click to open URL", 'k',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_url_ctrl_click));
+
+    s = ctrl_getset(b, "NiTTY", "scripts", "RuTTY-style session scripts");
+    ctrl_filesel(s, "Script file:", 'f',
+                 FILTER_ALL_FILES, false, "Select script file",
+                 HELPCTX(no_help),
+                 conf_filesel_handler, I(CONF_nitty_script_filename));
+    ctrl_radiobuttons(s, "Script mode:", 'd', 3,
+                      HELPCTX(no_help),
+                      conf_radiobutton_handler, I(CONF_nitty_script_mode),
+                      "Disabled (stop)", I(NITTY_SCRIPT_STOP),
+                      "Play", I(NITTY_SCRIPT_PLAY),
+                      "Record", I(NITTY_SCRIPT_RECORD));
+    ctrl_editbox(s, "Line delay (ms):", 'l', 40,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_line_delay), ED_INT);
+    ctrl_editbox(s, "Character delay (ms):", 'b', 40,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_char_delay), ED_INT);
+    ctrl_editbox(s, "Condition line prefix (single character):", 'p', 20,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_cond_line), ED_STR);
+    ctrl_checkbox(s, "Wait for prompt (script waits for host output)", 'w',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_script_enable));
+    ctrl_checkbox(s, "Use :condition lines from script file", 'y',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_script_cond_use));
+    ctrl_checkbox(s, "Except first line from wait/timeout", 'e',
+                  HELPCTX(no_help),
+                  conf_checkbox_handler, I(CONF_nitty_script_except));
+    ctrl_editbox(s, "Wait timeout (seconds):", 'i', 30,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_timeout), ED_INT);
+    ctrl_editbox(s, "Wait for text (prompt or \"word1\"\"word2\"):", 'x', 100,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_waitfor), ED_STR);
+    ctrl_editbox(s, "Halt if output contains:", 's', 100,
+                 HELPCTX(no_help),
+                 conf_editbox_handler, I(CONF_nitty_script_halton), ED_STR);
+    ctrl_radiobuttons(s, "Script CR/LF handling:", 'r', 2,
+                      HELPCTX(no_help),
+                      conf_radiobutton_handler, I(CONF_nitty_script_crlf),
+                      "Off", I(NITTY_SCRIPT_CRLF_OFF),
+                      "No LF", I(NITTY_SCRIPT_CRLF_NOLF),
+                      "CR only", I(NITTY_SCRIPT_CRLF_CR),
+                      "Recorded", I(NITTY_SCRIPT_CRLF_REC));
 }

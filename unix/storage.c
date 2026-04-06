@@ -19,6 +19,7 @@
 #include "putty.h"
 #include "storage.h"
 #include "tree234.h"
+#include "nitty_sesspass.h"
 
 #ifdef PATH_MAX
 #define FNLEN PATH_MAX
@@ -227,6 +228,7 @@ static char *make_filename(int index, const char *subname)
 
 struct settings_w {
     FILE *fp;
+    char *nitty_sessname;
 };
 
 settings_w *open_settings_w(const char *sessionname, char **errmsg)
@@ -235,6 +237,9 @@ settings_w *open_settings_w(const char *sessionname, char **errmsg)
     FILE *fp;
 
     *errmsg = NULL;
+
+    if (!sessionname || !*sessionname)
+        sessionname = "Default Settings";
 
     /*
      * Start by making sure the .putty directory and its sessions
@@ -270,12 +275,22 @@ settings_w *open_settings_w(const char *sessionname, char **errmsg)
 
     settings_w *toret = snew(settings_w);
     toret->fp = fp;
+    toret->nitty_sessname = dupstr(sessionname);
     return toret;
 }
 
 void write_setting_s(settings_w *handle, const char *key, const char *value)
 {
-    fprintf(handle->fp, "%s=%s\n", key, value);
+    char *enc = NULL;
+    const char *wval = value;
+
+    if (handle->nitty_sessname && key && !strcmp(key, "Password") &&
+        value && *value) {
+        enc = nitty_sesspass_encrypt_for_save(handle->nitty_sessname, value);
+        wval = enc;
+    }
+    fprintf(handle->fp, "%s=%s\n", key, wval);
+    sfree(enc);
 }
 
 void write_setting_i(settings_w *handle, const char *key, int value)
@@ -286,6 +301,7 @@ void write_setting_i(settings_w *handle, const char *key, int value)
 void close_settings_w(settings_w *handle)
 {
     fclose(handle->fp);
+    sfree(handle->nitty_sessname);
     sfree(handle);
 }
 
@@ -370,6 +386,7 @@ static const char *get_setting(const char *key)
 
 struct settings_r {
     tree234 *t;
+    char *nitty_sessname;
 };
 
 settings_r *open_settings_r(const char *sessionname)
@@ -379,6 +396,9 @@ settings_r *open_settings_r(const char *sessionname)
     char *line;
     settings_r *toret;
 
+    if (!sessionname || !*sessionname)
+        sessionname = "Default Settings";
+
     filename = make_filename(INDEX_SESSION, sessionname);
     fp = fopen(filename, "r");
     sfree(filename);
@@ -387,6 +407,7 @@ settings_r *open_settings_r(const char *sessionname)
 
     toret = snew(settings_r);
     toret->t = newtree234(keycmp);
+    toret->nitty_sessname = dupstr(sessionname);
 
     while ( (line = fgetline(fp)) ) {
         char *value = strchr(line, '=');
@@ -427,8 +448,12 @@ char *read_setting_s(settings_r *handle, const char *key)
 
     if (!val)
         return NULL;
-    else
-        return dupstr(val);
+
+    if (handle && handle->nitty_sessname && key && !strcmp(key, "Password") &&
+        *val)
+        return nitty_sesspass_decrypt_after_load(handle->nitty_sessname, val);
+
+    return dupstr(val);
 }
 
 int read_setting_i(settings_r *handle, const char *key, int defvalue)
@@ -531,6 +556,7 @@ void close_settings_r(settings_r *handle)
     }
 
     freetree234(handle->t);
+    sfree(handle->nitty_sessname);
     sfree(handle);
 }
 
