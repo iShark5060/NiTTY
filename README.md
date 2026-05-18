@@ -36,7 +36,6 @@ NiTTY uses **CMake** (3.x). From the repository root:
 
 ```bash
 cmake -S . -B build
-text box l
 ```
 
 On Windows with **Visual Studio**, use a generator you prefer, for example:
