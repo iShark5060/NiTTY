@@ -14,17 +14,38 @@
 #include "network.h"
 #include "proxy/proxy.h"
 
-char *platform_setup_local_proxy(Socket *socket, const char *cmd)
+static void close_pipe_ends(int pipefds[2])
+{
+    if (pipefds[0] >= 0)
+        close(pipefds[0]);
+    if (pipefds[1] >= 0)
+        close(pipefds[1]);
+}
+
+static void subproc_local_proxy_reaped(
+    void *vwaiter, int exittype, uint32_t exitdata)
+{
+    subproc_waiter_free((SubprocessWaiter *)vwaiter);
+}
+
+static char *start_subprocess_fd_socket(
+    Socket *socket, const char *cmd, SubprocessWaiter **waiter)
 {
     /*
      * Create the pipes to the proxy command, and spawn the proxy
      * command process.
      */
-    int to_cmd_pipe[2], from_cmd_pipe[2], cmd_err_pipe[2];
+    int to_cmd_pipe[2] = { -1, -1 };
+    int from_cmd_pipe[2] = { -1, -1 };
+    int cmd_err_pipe[2] = { -1, -1 };
     if (pipe(to_cmd_pipe) < 0 ||
         pipe(from_cmd_pipe) < 0 ||
         pipe(cmd_err_pipe) < 0) {
-        return dupprintf("pipe: %s", strerror(errno));
+        char *err = dupprintf("pipe: %s", strerror(errno));
+        close_pipe_ends(to_cmd_pipe);
+        close_pipe_ends(from_cmd_pipe);
+        close_pipe_ends(cmd_err_pipe);
+        return err;
     }
     cloexec(to_cmd_pipe[1]);
     cloexec(from_cmd_pipe[0]);
@@ -46,7 +67,19 @@ char *platform_setup_local_proxy(Socket *socket, const char *cmd)
     }
 
     if (pid < 0) {
-        return dupprintf("fork: %s", strerror(errno));
+        char *err = dupprintf("fork: %s", strerror(errno));
+        close_pipe_ends(to_cmd_pipe);
+        close_pipe_ends(from_cmd_pipe);
+        close_pipe_ends(cmd_err_pipe);
+        return err;
+    }
+
+    {
+        SubprocessWaiter *w = subproc_waiter_from_pid(pid);
+        if (waiter)
+            *waiter = w;
+        else
+            subproc_waiter_set_callback(w, subproc_local_proxy_reaped, w);
     }
 
     close(to_cmd_pipe[0]);
@@ -56,6 +89,12 @@ char *platform_setup_local_proxy(Socket *socket, const char *cmd)
     setup_fd_socket(socket, from_cmd_pipe[0], to_cmd_pipe[1], cmd_err_pipe[0]);
 
     return NULL;
+}
+
+char *platform_setup_local_proxy(Socket *socket, const char *cmd)
+{
+    /* In this context, no SubprocessWaiter is needed */
+    return start_subprocess_fd_socket(socket, cmd, NULL);
 }
 
 Socket *platform_new_connection(SockAddr *addr, const char *hostname,
@@ -97,14 +136,14 @@ Socket *platform_new_connection(SockAddr *addr, const char *hostname,
     }
 }
 
-Socket *platform_start_subprocess(const char *cmd, Plug *plug,
-                                  const char *prefix)
+Socket *platform_start_subprocess(
+    const char *cmd, Plug *plug, const char *pfx, SubprocessWaiter **waiter)
 {
     Socket *socket = make_deferred_fd_socket(
         null_deferred_socket_opener(),
         sk_nonamelookup("<local command>"), 0, plug);
-    char *err = platform_setup_local_proxy(socket, cmd);
-    fd_socket_set_psb_prefix(socket, prefix);
+    char *err = start_subprocess_fd_socket(socket, cmd, waiter);
+    fd_socket_set_psb_prefix(socket, pfx);
 
     if (err) {
         sk_close(socket);
