@@ -160,6 +160,8 @@ void subproc_waiter_set_callback(
 
 void subproc_waiter_free(SubprocessWaiter *waiter)
 {
+    if (!waiter)
+        return;
     del234(waiters_by_pid, waiter);
     sfree(waiter);
 }

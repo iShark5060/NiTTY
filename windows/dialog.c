@@ -275,6 +275,8 @@ static void update_logbox_horizontal_extent(HWND logbox)
      * all of them. */
     HWND listbox = GetDlgItem(logbox, IDN_LIST);
     HDC hdc = GetDC(listbox);
+    HFONT hFont = (HFONT)SendMessage(listbox, WM_GETFONT, 0, 0);
+    HFONT hOldFont = hFont ? (HFONT)SelectObject(hdc, hFont) : NULL;
     int count = SendMessage(listbox, LB_GETCOUNT, 0, 0);
     strbuf *sb = strbuf_new();
     WPARAM maxwidth = 0;
@@ -289,6 +291,8 @@ static void update_logbox_horizontal_extent(HWND logbox)
         }
     }
     strbuf_free(sb);
+    if (hOldFont)
+        SelectObject(hdc, hOldFont);
     ReleaseDC(listbox, hdc);
 
     /*

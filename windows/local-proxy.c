@@ -66,9 +66,20 @@ static char *start_subprocess_handle_socket(
     si.hStdOutput = cmd_to_us;
     si.hStdError = cmd_err_to_us;
     char *cmd_mutable = dupstr(cmd); /* CreateProcess needs non-const char * */
-    CreateProcess(NULL, cmd_mutable, NULL, NULL, true,
-                  CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
-                  NULL, NULL, &si, &pi);
+    if (!CreateProcess(NULL, cmd_mutable, NULL, NULL, true,
+                       CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
+                       NULL, NULL, &si, &pi)) {
+        DWORD create_err = GetLastError();
+        sfree(cmd_mutable);
+        CloseHandle(us_from_cmd);
+        CloseHandle(cmd_to_us);
+        CloseHandle(us_to_cmd);
+        CloseHandle(cmd_from_us);
+        if (us_from_cmd_err != NULL)
+            CloseHandle(us_from_cmd_err);
+        return dupprintf("Unable to run proxy command: %s",
+                         win_strerror(create_err));
+    }
     sfree(cmd_mutable);
     CloseHandle(pi.hThread);
 
@@ -113,6 +124,8 @@ Socket *platform_new_connection(SockAddr *addr, const char *hostname,
 Socket *platform_start_subprocess(
     const char *cmd, Plug *plug, const char *pfx, SubprocessWaiter **waiter)
 {
+    if (waiter)
+        *waiter = NULL;
     Socket *socket = make_deferred_handle_socket(
         null_deferred_socket_opener(),
         sk_nonamelookup("<local command>"), 0, plug);

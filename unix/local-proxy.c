@@ -14,6 +14,20 @@
 #include "network.h"
 #include "proxy/proxy.h"
 
+static void close_pipe_ends(int pipefds[2])
+{
+    if (pipefds[0] >= 0)
+        close(pipefds[0]);
+    if (pipefds[1] >= 0)
+        close(pipefds[1]);
+}
+
+static void subproc_local_proxy_reaped(
+    void *vwaiter, int exittype, uint32_t exitdata)
+{
+    subproc_waiter_free((SubprocessWaiter *)vwaiter);
+}
+
 static char *start_subprocess_fd_socket(
     Socket *socket, const char *cmd, SubprocessWaiter **waiter)
 {
@@ -21,11 +35,17 @@ static char *start_subprocess_fd_socket(
      * Create the pipes to the proxy command, and spawn the proxy
      * command process.
      */
-    int to_cmd_pipe[2], from_cmd_pipe[2], cmd_err_pipe[2];
+    int to_cmd_pipe[2] = { -1, -1 };
+    int from_cmd_pipe[2] = { -1, -1 };
+    int cmd_err_pipe[2] = { -1, -1 };
     if (pipe(to_cmd_pipe) < 0 ||
         pipe(from_cmd_pipe) < 0 ||
         pipe(cmd_err_pipe) < 0) {
-        return dupprintf("pipe: %s", strerror(errno));
+        char *err = dupprintf("pipe: %s", strerror(errno));
+        close_pipe_ends(to_cmd_pipe);
+        close_pipe_ends(from_cmd_pipe);
+        close_pipe_ends(cmd_err_pipe);
+        return err;
     }
     cloexec(to_cmd_pipe[1]);
     cloexec(from_cmd_pipe[0]);
@@ -47,11 +67,20 @@ static char *start_subprocess_fd_socket(
     }
 
     if (pid < 0) {
-        return dupprintf("fork: %s", strerror(errno));
+        char *err = dupprintf("fork: %s", strerror(errno));
+        close_pipe_ends(to_cmd_pipe);
+        close_pipe_ends(from_cmd_pipe);
+        close_pipe_ends(cmd_err_pipe);
+        return err;
     }
 
-    if (waiter)
-        *waiter = subproc_waiter_from_pid(pid);
+    {
+        SubprocessWaiter *w = subproc_waiter_from_pid(pid);
+        if (waiter)
+            *waiter = w;
+        else
+            subproc_waiter_set_callback(w, subproc_local_proxy_reaped, w);
+    }
 
     close(to_cmd_pipe[0]);
     close(from_cmd_pipe[1]);

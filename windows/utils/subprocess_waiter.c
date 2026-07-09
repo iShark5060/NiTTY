@@ -18,8 +18,11 @@ static void subproc_waiter_callback(void *vctx)
     SubprocessWaiter *waiter = (SubprocessWaiter *)vctx;
 
     DWORD exitstatus;
-    if (!GetExitCodeProcess(waiter->hprocess, &exitstatus))
-        return;                        /* process hasn't exited yet */
+    if (!GetExitCodeProcess(waiter->hprocess, &exitstatus)) {
+        /* GetExitCodeProcess failed (not "still active" — that returns
+         * TRUE with STILL_ACTIVE). Clean up and notify with an error. */
+        exitstatus = (DWORD)-1;
+    }
 
     /* Stop waiting for this handle, and close it. */
     if (waiter->hw) {
@@ -65,6 +68,8 @@ void subproc_waiter_set_callback(
 
 void subproc_waiter_free(SubprocessWaiter *waiter)
 {
+    if (!waiter)
+        return;
     if (waiter->hw)
         delete_handle_wait(waiter->hw);
     if (waiter->hprocess != INVALID_HANDLE_VALUE)

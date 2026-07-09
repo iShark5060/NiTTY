@@ -566,7 +566,8 @@ static void pty_finished(Pty *pty)
      */
     close_on_exit = conf_get_int(pty->conf, CONF_close_on_exit);
     if (close_on_exit == FORCE_OFF ||
-        (close_on_exit == AUTO && pty->exittype >= 0)) {
+        (close_on_exit == AUTO &&
+         (pty->exittype != EXITTYPE_NORMAL || pty->exitdata != 0))) {
         char *message;
         switch (pty->exittype) {
           case EXITTYPE_NORMAL:
@@ -1227,7 +1228,10 @@ static void pty_free(Backend *be)
 
     bufchain_clear(&pty->output_data);
 
-    subproc_waiter_free(pty->waiter);
+    if (pty->waiter) {
+        subproc_waiter_free(pty->waiter);
+        pty->waiter = NULL;
+    }
 
     conf_free(pty->conf);
     pty->conf = NULL;
@@ -1465,7 +1469,7 @@ int pty_backend_exit_signum(Backend *be)
     if (!pty->finished || pty->exittype != EXITTYPE_SIGNAL)
         return -1;
 
-    return WTERMSIG(pty->exitdata);
+    return (int)pty->exitdata;
 }
 
 ptrlen pty_backend_exit_signame(Backend *be, char **aux_msg)
