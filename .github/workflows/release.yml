@@ -72,6 +72,11 @@ jobs:
 
     needs: [prepare]
 
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -165,6 +170,11 @@ jobs:
           Compress-Archive -Path "$stage/*" -DestinationPath $archive
           Get-ChildItem dist
 
+      - name: Attest release artifact
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
@@ -192,6 +202,13 @@ jobs:
         with:
           name: nitty-win64-${{ needs.prepare.outputs.version }}
           path: dist
+
+      - name: Verify release attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify "dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip" \
+            --repo "${{ github.repository }}"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3

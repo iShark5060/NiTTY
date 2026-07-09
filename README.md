@@ -94,6 +94,20 @@ PuTTY’s manuals are built from the `.but` sources under `doc/` using [Halibut]
 
 ---
 
+## Verifying release downloads
+
+Official Windows x64 release zips are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) and signed with [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds) (SLSA build provenance via Sigstore).
+
+After downloading a release zip from GitHub, verify it with the [GitHub CLI](https://cli.github.com/) (v2.49.0 or newer):
+
+```bash
+gh attestation verify NiTTY-0.83-win64.zip --repo iShark5060/NiTTY
+```
+
+Replace `0.83` with the release version and use the actual zip filename from the release. A successful verification confirms the archive was produced by the project’s release workflow and has not been altered since.
+
+---
+
 ## Licence
 
 NiTTY inherits PuTTY’s licence. See the [`LICENCE`](LICENCE) file in this repository.
