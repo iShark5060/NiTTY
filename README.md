@@ -55,6 +55,35 @@ See the plain [`README`](README) file in this directory for additional notes (e.
 
 ---
 
+## Upstream sync
+
+NiTTY tracks [official PuTTY](https://git.tartarus.org/?p=simon/putty.git). Add the upstream remote once per clone:
+
+```bash
+git remote add putty https://git.tartarus.org/simon/putty.git
+git fetch putty
+```
+
+Check what upstream has that NiTTY does not yet have:
+
+```bash
+git fetch putty
+git log --oneline HEAD..putty/main
+```
+
+Merge upstream changes (resolve any conflicts in shared files; NiTTY-specific code is mostly under `nitty_*.c/h`, `windows/nitty_*.c`, and related config):
+
+```bash
+git fetch putty
+git merge putty/main
+```
+
+After merging, verify `LATEST.VER` matches the upstream release you intend to ship, run a local or CI build, and test NiTTY-specific features (dark mode, portable config, session scripts, Pageant key persistence).
+
+Tagged upstream releases are available as `putty/0.84`, `putty/0.83`, and so on if you prefer merging a specific release rather than `putty/main`.
+
+---
+
 ## Documentation
 
 PuTTY’s manuals are built from the `.but` sources under `doc/` using [Halibut](https://www.chiark.greenend.org.uk/~sgtatham/halibut/). Prebuilt snapshots often ship docs; building from a bare clone may require generating them yourself.
