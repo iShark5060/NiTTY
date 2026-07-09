@@ -38,12 +38,14 @@ NiTTY uses **CMake** (3.x). From the repository root:
 cmake -S . -B build
 ```
 
-On Windows with **Visual Studio**, use a generator you prefer, for example:
+On Windows with **Visual Studio**, use a generator matching your installed version, for example:
 
 ```bash
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release
 ```
+
+On older toolchains, `"Visual Studio 17 2022"` remains supported. The GitHub Actions release workflow auto-detects between VS 2026 and VS 2022.
 
 Install (Unix):
 

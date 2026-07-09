@@ -100,10 +100,32 @@ jobs:
           "@ | Set-Content -Encoding utf8NoBOM version.h
 
       - name: Configure CMake
+        id: cmake
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          $generators = @(
+            'Visual Studio 18 2026',
+            'Visual Studio 17 2022'
+          )
+          $configured = $false
+          foreach ($gen in $generators) {
+            Write-Host "Trying CMake generator: $gen"
+            if (Test-Path build) {
+              Remove-Item -Recurse -Force build
+            }
+            cmake -S . -B build -G $gen -A x64
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Configured with generator: $gen"
+              "generator=$gen" >> $env:GITHUB_OUTPUT
+              "binary_dir=build/Release" >> $env:GITHUB_OUTPUT
+              $configured = $true
+              break
+            }
+          }
+          if (-not $configured) {
+            throw 'No supported Visual Studio installation found (tried VS 2026 and VS 2022 generators)'
+          }
 
       - name: Build Release binaries
         shell: pwsh
@@ -122,8 +144,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
           $shipped = Get-Content build/shipped.txt | Where-Object { $_.Trim() -ne '' }
+          $binaryDir = '${{ steps.cmake.outputs.binary_dir }}'
           foreach ($name in $shipped) {
-            $path = Join-Path build/Release $name.Trim()
+            $path = Join-Path $binaryDir $name.Trim()
             if (-not (Test-Path $path)) {
               throw "Expected shipped binary is missing: $path"
             }
