@@ -195,6 +195,10 @@ endif()
 # ship.
 file(WRITE ${CMAKE_BINARY_DIR}/shipped.txt "")
 function(installed_program target)
+  get_target_property(output_name ${target} OUTPUT_NAME)
+  if(NOT output_name OR output_name MATCHES "NOTFOUND$")
+    set(output_name ${target})
+  endif()
   file(APPEND ${CMAKE_BINARY_DIR}/shipped.txt
-    "${target}${CMAKE_EXECUTABLE_SUFFIX}\n")
+    "${output_name}${CMAKE_EXECUTABLE_SUFFIX}\n")
 endfunction()
