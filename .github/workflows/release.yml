@@ -211,7 +211,7 @@ jobs:
             --repo "${{ github.repository }}"
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v3
+        uses: iShark5060/actions-gh-release@v1
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: NiTTY ${{ needs.prepare.outputs.version }}
@@ -233,7 +233,7 @@ jobs:
         if: ${{ env.DISCORD_WEBHOOK != '' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        uses: iShark5060/actions-status-discord@v1
+        uses: iShark5060/actions-discord-status@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || contains(needs.*.result, 'skipped') && 'skipped' || 'success' }}
