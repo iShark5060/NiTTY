@@ -1,5 +1,11 @@
 # NiTTY
 
+[![CI](https://github.com/iShark5060/NiTTY/actions/workflows/ci.yml/badge.svg)](https://github.com/iShark5060/NiTTY/actions/workflows/ci.yml)
+[![PR](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml/badge.svg)](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml)
+![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white)
+[![Cursor](https://img.shields.io/badge/Cursor-IDE-141414?logo=cursor&logoColor=white)](https://cursor.com)
+
 NiTTY is a **Windows-first SSH, Telnet, and serial terminal client** based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. It keeps PuTTY’s reliability and protocol support while refreshing the experience with a modern dark-themed configuration UI and a set of quality-of-life features inspired by community forks—especially [KiTTY](https://www.9bis.net/kitty/).
 
 If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem. Windows dark-mode behaviour and control theming draw on ideas documented in **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** (see below).
@@ -29,6 +35,24 @@ NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; i
 Upstream PuTTY remains the reference for behaviour, security updates, and documentation unless this repository states otherwise. When reporting security-sensitive issues, consider whether they belong in **upstream PuTTY** first.
 
 ---
+
+## Requirements
+
+- CMake 3.x
+- Visual Studio 2022 or 2026 (Desktop development with C++)
+
+## Quick start
+
+```bash
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64
+cmake --build build --config Release
+```
+
+## Scripts
+
+| Script                   | Description                                      |
+| ------------------------ | ------------------------------------------------ |
+| `scripts/validate.ps1`   | CMake configure + Release build (CI quality gate). |
 
 ## Building
 
@@ -133,6 +157,12 @@ That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base6
 `nitty.ini` is only for portable/bootstrap flags and the small set of keys read by the portable layer; session colours, SSH options, and most behaviour still come from saved sessions or the registry—see comments in `nitty.ini` and `windows/nitty_portable.c`.
 
 ---
+
+## Development
+
+Agent-oriented docs: [openwiki/quickstart.md](openwiki/quickstart.md).
+
+Engineering standards: AppBase `docs/org-standards/` with [personal-repos.md](https://github.com/Dark-Avian-Labs/AppBase/blob/main/docs/org-standards/personal-repos.md) (GitHub-hosted runners).
 
 ## Links
 
