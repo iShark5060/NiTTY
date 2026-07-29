@@ -1,6 +1,5 @@
 # NiTTY
 
-[![CI](https://github.com/iShark5060/NiTTY/actions/workflows/ci.yml/badge.svg)](https://github.com/iShark5060/NiTTY/actions/workflows/ci.yml)
 [![PR](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml/badge.svg)](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml)
 ![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white)
@@ -26,10 +25,10 @@ NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; i
 
 ## Attribution
 
-| Project | Role |
-|--------|------|
-| **[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)** | Original design, protocols, security model, and the majority of the source tree. Copyright © 1997– Simon Tatham and contributors. |
-| **[KiTTY](https://www.9bis.net/kitty/)** | A long-running PuTTY fork that popularized many Windows UX and session features. NiTTY gratefully adopts ideas and compatibility hooks from that lineage (e.g. session script concepts and registry keyword patterns where noted in code). |
+| Project                                                               | Role                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)**      | Original design, protocols, security model, and the majority of the source tree. Copyright © 1997– Simon Tatham and contributors.                                                                                                                                              |
+| **[KiTTY](https://www.9bis.net/kitty/)**                              | A long-running PuTTY fork that popularized many Windows UX and session features. NiTTY gratefully adopts ideas and compatibility hooks from that lineage (e.g. session script concepts and registry keyword patterns where noted in code).                                     |
 | **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** | A C++ library for dark mode and themed Win32 controls. NiTTY does not ship it as a dependency, but its techniques (e.g. undocumented UxTheme hooks, `WM_CTLCOLOR*` handling for read-only edits, scrollbar theming) informed the Windows configuration UI and related tooling. |
 
 Upstream PuTTY remains the reference for behaviour, security updates, and documentation unless this repository states otherwise. When reporting security-sensitive issues, consider whether they belong in **upstream PuTTY** first.
@@ -50,9 +49,9 @@ cmake --build build --config Release
 
 ## Scripts
 
-| Script                   | Description                                      |
-| ------------------------ | ------------------------------------------------ |
-| `scripts/validate.ps1`   | CMake configure + Release build (CI quality gate). |
+| Script                 | Description                                        |
+| ---------------------- | -------------------------------------------------- |
+| `scripts/validate.ps1` | CMake configure + Release build (CI quality gate). |
 
 ## Building
 

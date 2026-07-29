@@ -66,7 +66,7 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "Resolved release version $version (tag v$version)"
 
-  build:
+  build-and-release:
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -74,7 +74,7 @@ jobs:
 
     permissions:
       id-token: write
-      contents: read
+      contents: write
       attestations: write
 
     steps:
@@ -175,37 +175,10 @@ jobs:
         with:
           subject-path: dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip
 
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: nitty-win64-${{ needs.prepare.outputs.version }}
-          path: dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip
-          if-no-files-found: error
-
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    needs: [prepare, build]
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Download release artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: nitty-win64-${{ needs.prepare.outputs.version }}
-          path: dist
-
       - name: Verify release attestation
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           gh attestation verify "dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip" \
             --repo "${{ github.repository }}"
@@ -225,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    needs: [prepare, build, release]
+    needs: [prepare, build-and-release]
     if: ${{ always() }}
 
     steps:
@@ -237,7 +210,7 @@ jobs:
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
           status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || contains(needs.*.result, 'skipped') && 'skipped' || 'success' }}
-          content: '<@${{ secrets.DISCORD_USERID }}>'
+          content: "<@${{ secrets.DISCORD_USERID }}>"
           title: ${{ github.workflow }}
           description: ${{ contains(needs.*.result, 'failure') && format('Release v{0} failed. Review workflow logs before retrying.', needs.prepare.outputs.version) || contains(needs.*.result, 'cancelled') && format('Release v{0} was cancelled.', needs.prepare.outputs.version) || contains(needs.*.result, 'skipped') && format('Release v{0} was skipped.', needs.prepare.outputs.version) || format('Release v{0} succeeded. Windows x64 build is published.', needs.prepare.outputs.version) }}
           color: ${{ contains(needs.*.result, 'failure') && '0xff0000' || contains(needs.*.result, 'cancelled') && '0xffaa00' || contains(needs.*.result, 'skipped') && '0x808080' || '0x00ff00' }}
