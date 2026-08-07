@@ -313,14 +313,35 @@ static void update_logbox_horizontal_extent(HWND logbox)
     SendMessage(listbox, LB_SETHORIZONTALEXTENT, maxwidth, 0);
 }
 
+static void nitty_about_licence_theme_cleanup(HWND hwnd)
+{
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th) {
+        nitty_config_theme_free(th);
+        sfree(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
+    }
+}
+
 static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
                                 WPARAM wParam, LPARAM lParam)
 {
     int i;
+    nitty_config_theme *th =
+        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    if (th && th->inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(th, hwnd, msg, wParam, lParam, &lr))
+            return lr;
+    }
 
     switch (msg) {
       case WM_INITDIALOG: {
         char *str = dupprintf("%s Event Log", appname);
+        th = snew(nitty_config_theme);
+        nitty_config_theme_init(th);
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)th);
         SetWindowText(hwnd, str);
         sfree(str);
 
@@ -336,6 +357,11 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
                                0, (LPARAM) events_circular[(circular_first + i) % LOGEVENT_CIRCULAR_MAX]);
         update_logbox_horizontal_extent(hwnd);
 
+        nitty_config_theme_apply_children(hwnd, th);
+        nitty_apply_win11_window_chrome(hwnd);
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
         return 1;
       }
       case WM_COMMAND:
@@ -343,6 +369,7 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
           case IDOK:
           case IDCANCEL:
             logbox = NULL;
+            nitty_about_licence_theme_cleanup(hwnd);
             SetActiveWindow(GetParent(hwnd));
             DestroyWindow(hwnd);
             return 0;
@@ -391,22 +418,12 @@ static INT_PTR CALLBACK LogProc(HWND hwnd, UINT msg,
         return 0;
       case WM_CLOSE:
         logbox = NULL;
+        nitty_about_licence_theme_cleanup(hwnd);
         SetActiveWindow(GetParent(hwnd));
         DestroyWindow(hwnd);
         return 0;
     }
     return 0;
-}
-
-static void nitty_about_licence_theme_cleanup(HWND hwnd)
-{
-    nitty_config_theme *th =
-        (nitty_config_theme *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-    if (th) {
-        nitty_config_theme_free(th);
-        sfree(th);
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
-    }
 }
 
 static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
@@ -1031,12 +1048,21 @@ struct hostkey_dialog_ctx {
     SeatDialogText *text;
     bool has_title;
     const char *helpctx;
+    nitty_config_theme theme;
+    HFONT title_font;
 };
 
 static INT_PTR HostKeyMoreInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
                                    LPARAM lParam, void *vctx)
 {
     struct hostkey_dialog_ctx *ctx = (struct hostkey_dialog_ctx *)vctx;
+
+    if (ctx->theme.inited) {
+        LRESULT lr;
+        if (nitty_config_theme_ctlcolor(&ctx->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
 
     switch (msg) {
       case WM_INITDIALOG: {
@@ -1132,6 +1158,13 @@ static INT_PTR HostKeyMoreInfoProc(HWND hwnd, UINT msg, WPARAM wParam,
                      r.bottom - r.top + newheight - oldheight,
                      SWP_NOMOVE | SWP_NOREDRAW | SWP_NOZORDER);
 
+        if (!ctx->theme.inited)
+            nitty_config_theme_init(&ctx->theme);
+        nitty_config_theme_apply_children(hwnd, &ctx->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
         ShowWindow(hwnd, SW_SHOWNORMAL);
         return 1;
       }
@@ -1187,6 +1220,22 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
 {
     struct hostkey_dialog_ctx *ctx = (struct hostkey_dialog_ctx *)vctx;
 
+    if (ctx->theme.inited) {
+        LRESULT lr;
+        if (msg == WM_CTLCOLORSTATIC && ctx->has_title) {
+            HWND control = (HWND)lParam;
+            if (GetWindowLongPtr(control, GWLP_ID) == IDC_HK_TITLE) {
+                HDC hdc = (HDC)wParam;
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, ctx->theme.clr_text);
+                return (INT_PTR)ctx->theme.br_dialog;
+            }
+        }
+        if (nitty_config_theme_ctlcolor(&ctx->theme, hwnd, msg,
+                                        wParam, lParam, &lr))
+            return lr;
+    }
+
     switch (msg) {
       case WM_INITDIALOG: {
         strbuf *dlg_text = strbuf_new();
@@ -1195,6 +1244,7 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
             dlg_text, &scary_heading, ctx->text);
 
         LPCTSTR iconid = IDI_QUESTION;
+        ctx->has_title = (scary_heading != NULL);
         if (scary_heading) {
             SetDlgItemText(hwnd, IDC_HK_TITLE, scary_heading);
             iconid = IDI_WARNING;
@@ -1280,30 +1330,30 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
                 DestroyWindow(item);
         }
 
+        nitty_config_theme_init(&ctx->theme);
+        if (ctx->has_title) {
+            HWND title = GetDlgItem(hwnd, IDC_HK_TITLE);
+            if (title) {
+                HFONT base = (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0);
+                LOGFONT lf;
+                if (base && GetObject(base, sizeof(lf), &lf)) {
+                    lf.lfWeight = FW_BOLD;
+                    lf.lfHeight = lf.lfHeight * 3 / 2;
+                    ctx->title_font = CreateFontIndirect(&lf);
+                    if (ctx->title_font)
+                        SendMessage(title, WM_SETFONT,
+                                    (WPARAM)ctx->title_font, TRUE);
+                }
+            }
+        }
+        nitty_config_theme_apply_children(hwnd, &ctx->theme);
+        nitty_apply_win11_window_chrome(hwnd);
+        RedrawWindow(hwnd, NULL, NULL,
+                     RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+
         ShowWindow(hwnd, SW_SHOWNORMAL);
 
         return 1;
-      }
-      case WM_CTLCOLORSTATIC: {
-        HDC hdc = (HDC)wParam;
-        HWND control = (HWND)lParam;
-
-        if (GetWindowLongPtr(control, GWLP_ID) == IDC_HK_TITLE &&
-            ctx->has_title) {
-            SetBkMode(hdc, TRANSPARENT);
-            HFONT prev_font = (HFONT)SelectObject(
-                hdc, (HFONT)GetStockObject(SYSTEM_FONT));
-            LOGFONT lf;
-            if (GetObject(prev_font, sizeof(lf), &lf)) { 
-                lf.lfWeight = FW_BOLD;
-                lf.lfHeight = lf.lfHeight * 3 / 2;
-                HFONT bold_font = CreateFontIndirect(&lf);
-                if (bold_font)
-                    SelectObject(hdc, bold_font);
-            }
-            return (INT_PTR)GetSysColorBrush(COLOR_BTNFACE);
-        }
-        return 0;
       }
       case WM_COMMAND:
         switch (LOWORD(wParam)) {
@@ -1325,6 +1375,13 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
         return 0;
       case WM_CLOSE:
         ShinyEndDialog(hwnd, IDCANCEL);
+        return 0;
+      case WM_DESTROY:
+        if (ctx->title_font) {
+            DeleteObject(ctx->title_font);
+            ctx->title_font = NULL;
+        }
+        nitty_config_theme_free(&ctx->theme);
         return 0;
     }
     return 0;
@@ -1351,6 +1408,7 @@ SeatPromptResult win_seat_confirm_ssh_host_key(
     WinGuiSeat *wgs = container_of(seat, WinGuiSeat, seat);
 
     struct hostkey_dialog_ctx ctx[1];
+    memset(ctx, 0, sizeof(*ctx));
     ctx->text = text;
     ctx->helpctx = helpctx;
 
