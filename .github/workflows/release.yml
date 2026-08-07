@@ -193,7 +193,7 @@ jobs:
           generate_release_notes: true
           files: dist/NiTTY-${{ needs.prepare.outputs.version }}-win64.zip
           fail_on_unmatched_files: true
-
+          upload_checksums: true
   discord-status:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -209,8 +209,8 @@ jobs:
         uses: iShark5060/actions-discord-status@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || contains(needs.*.result, 'skipped') && 'skipped' || 'success' }}
+          job_results: ${{ join(needs.*.result, '\n') }}
+          mention_on: failure
           content: "<@${{ secrets.DISCORD_USERID }}>"
           title: ${{ github.workflow }}
           description: ${{ contains(needs.*.result, 'failure') && format('Release v{0} failed. Review workflow logs before retrying.', needs.prepare.outputs.version) || contains(needs.*.result, 'cancelled') && format('Release v{0} was cancelled.', needs.prepare.outputs.version) || contains(needs.*.result, 'skipped') && format('Release v{0} was skipped.', needs.prepare.outputs.version) || format('Release v{0} succeeded. Windows x64 build is published.', needs.prepare.outputs.version) }}
-          color: ${{ contains(needs.*.result, 'failure') && '0xff0000' || contains(needs.*.result, 'cancelled') && '0xffaa00' || contains(needs.*.result, 'skipped') && '0x808080' || '0x00ff00' }}
