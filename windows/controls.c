@@ -2037,7 +2037,7 @@ bool winctrl_handle_command(struct dlgparam *dp, UINT msg,
 
             Filename *fn = request_file(
                 dp->hwnd, ctrl->fileselect.title, fn_prev,
-                ctrl->fileselect.for_writing, NULL, false,
+                ctrl->fileselect.for_writing, NULL, true,
                 ctrl->fileselect.filter);
             if (fn_prev)
                 filename_free(fn_prev);

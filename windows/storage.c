@@ -312,7 +312,13 @@ Filename *read_setting_filename(settings_r *handle, const char *name)
 {
     char *tmp = read_setting_s(handle, name);
     if (tmp) {
-        Filename *ret = filename_from_str(tmp);
+        Filename *ret;
+        if (!strcmp(name, "LogFileName")) {
+            char *resolved = nitty_portable_resolve_log_filename(tmp);
+            sfree(tmp);
+            tmp = resolved;
+        }
+        ret = filename_from_str(tmp);
         sfree(tmp);
         return ret;
     } else
