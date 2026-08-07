@@ -22,10 +22,19 @@ const char *nitty_portable_sessdir(void);
 const char *nitty_portable_sshkeysdir(void);
 const char *nitty_portable_jumplistdir(void);
 const char *nitty_portable_cadir(void);
+const char *nitty_portable_logsdir(void);
 const char *nitty_portable_seedpath(void);
 const char *nitty_portable_session_suffix(void);
 
 bool nitty_portable_ensure_dir(const char *dirpath);
+
+/*
+ * In portable/dir mode, turn a relative session log path into an absolute
+ * path under Logs\\ (so cwd / key-browse side effects do not relocate it).
+ * Absolute paths and non-portable mode are returned unchanged (caller owns
+ * the returned string via sfree).
+ */
+char *nitty_portable_resolve_log_filename(const char *name);
 
 /*
  * Pageant portable key list (requires [NiTTY] savemode=dir already).

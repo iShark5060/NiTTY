@@ -8,9 +8,10 @@
  *   configdir=subfolder   (relative to exe dir, or absolute path)
  *   fileextension=ktx     (session files become name.ktx; leading dot optional)
  *
- * With savemode=dir, sessions, host keys, random seed, jumplist data, and
- * SSH host CA definitions are stored under the config directory (see code:
- * Sessions, SshHostKeys, SshHostCAs, Jumplist, putty.rnd).
+ * With savemode=dir, sessions, host keys, random seed, jumplist data,
+ * SSH host CA definitions, and session logs are stored under the config
+ * directory (see code: Sessions, SshHostKeys, SshHostCAs, Jumplist, Logs,
+ * putty.rnd). Default LogFileName is Logs\\nitty-&H-&P.log (per host/port).
  *
  * Optional [Pageant] savemode=dir + PersistKeys=1 enables Pageant to load
  * and save a list of private key file paths (Pageant\\pageant-keys.txt).
@@ -43,8 +44,21 @@ static char sessdir[MAX_PATH];
 static char sshkeysdir[MAX_PATH];
 static char jumplistdir[MAX_PATH];
 static char cadir[MAX_PATH];
+static char logsdir[MAX_PATH];
 static char seedpath[MAX_PATH];
 static char session_suffix[32];
+
+static bool is_absolute_win_path(const char *p)
+{
+    if (!p || !*p)
+        return false;
+    if (p[0] == '\\' && p[1] == '\\')
+        return true; /* UNC */
+    if (((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) &&
+        p[1] == ':')
+        return true;
+    return false;
+}
 
 static void trim_end(char *s)
 {
@@ -74,6 +88,7 @@ void nitty_portable_init(void)
     nitty_ini_path[0] = '\0';
     pageant_subdir[0] = '\0';
     pageant_keysfile[0] = '\0';
+    logsdir[0] = '\0';
     session_suffix[0] = '\0';
 
     if (config_dir_override) {
@@ -152,6 +167,11 @@ void nitty_portable_init(void)
         cadir[sizeof cadir - 1] = '\0';
         sfree(t);
 
+        t = dupcat(base_dir, "\\Logs", NULL);
+        strncpy(logsdir, t, sizeof logsdir - 1);
+        logsdir[sizeof logsdir - 1] = '\0';
+        sfree(t);
+
         t = dupcat(base_dir, "\\putty.rnd", NULL);
         strncpy(seedpath, t, sizeof seedpath - 1);
         seedpath[sizeof seedpath - 1] = '\0';
@@ -172,6 +192,7 @@ void nitty_portable_init(void)
     nitty_portable_ensure_dir(sshkeysdir);
     nitty_portable_ensure_dir(jumplistdir);
     nitty_portable_ensure_dir(cadir);
+    nitty_portable_ensure_dir(logsdir);
     if (dir_mode && *pageant_subdir)
         nitty_portable_ensure_dir(pageant_subdir);
 }
@@ -236,6 +257,11 @@ const char *nitty_portable_cadir(void)
     return cadir;
 }
 
+const char *nitty_portable_logsdir(void)
+{
+    return logsdir;
+}
+
 const char *nitty_portable_seedpath(void)
 {
     return seedpath;
@@ -244,6 +270,45 @@ const char *nitty_portable_seedpath(void)
 const char *nitty_portable_session_suffix(void)
 {
     return session_suffix;
+}
+
+char *nitty_portable_resolve_log_filename(const char *name)
+{
+    const char *rel;
+    const char *p;
+
+    nitty_portable_init();
+    if (!name)
+        return NULL;
+    if (!dir_mode || !*logsdir)
+        return dupstr(name);
+    if (is_absolute_win_path(name))
+        return dupstr(name);
+
+    rel = name;
+    while (rel[0] == '.' && (rel[1] == '\\' || rel[1] == '/'))
+        rel += 2;
+    while (*rel == '\\' || *rel == '/')
+        rel++;
+    if (!*rel)
+        return dupstr(name);
+
+    /* Reject parent-directory segments so relative names cannot escape Logs. */
+    for (p = rel; *p; p++) {
+        if (p[0] == '.' && p[1] == '.' &&
+            (p == rel || p[-1] == '\\' || p[-1] == '/') &&
+            (p[2] == '\0' || p[2] == '\\' || p[2] == '/'))
+            return dupstr(name);
+    }
+
+    /*
+     * Paths already written as Logs\... are relative to the config root,
+     * not nested under Logs\Logs\.
+     */
+    if (strnicmp(rel, "Logs\\", 5) == 0 || strnicmp(rel, "Logs/", 5) == 0)
+        return dupcat(base_dir, "\\", rel, NULL);
+
+    return dupcat(logsdir, "\\", rel, NULL);
 }
 
 bool nitty_portable_ensure_dir(const char *dirpath)

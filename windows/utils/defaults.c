@@ -3,6 +3,7 @@
  */
 
 #include "putty.h"
+#include "nitty_portable.h"
 
 #include <commctrl.h>
 
@@ -16,9 +17,20 @@ FontSpec *platform_default_fontspec(const char *name)
 
 Filename *platform_default_filename(const char *name)
 {
-    if (!strcmp(name, "LogFileName"))
+    if (!strcmp(name, "LogFileName")) {
+        if (nitty_portable_dir_mode()) {
+            const char *logs = nitty_portable_logsdir();
+            char *path;
+            Filename *fn;
+
+            nitty_portable_ensure_dir(logs);
+            path = dupcat(logs, "\\nitty-&H-&P.log", NULL);
+            fn = filename_from_str(path);
+            sfree(path);
+            return fn;
+        }
         return filename_from_str("putty.log");
-    else
+    } else
         return filename_from_str("");
 }
 
