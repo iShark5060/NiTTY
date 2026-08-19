@@ -5,7 +5,7 @@
 ![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white)
 [![Cursor](https://img.shields.io/badge/Cursor-IDE-141414?logo=cursor&logoColor=white)](https://cursor.com)
 
-NiTTY is a **Windows-first SSH, Telnet, and serial terminal client** based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. It keeps PuTTY’s reliability and protocol support while refreshing the experience with a modern dark-themed configuration UI and a set of quality-of-life features inspired by community forks—especially [KiTTY](https://www.9bis.net/kitty/).
+NiTTY is a Windows-first SSH, Telnet, and serial terminal based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. Same protocols and reliability. Dark-themed configuration UI and extras inspired by community forks, especially [KiTTY](https://www.9bis.net/kitty/).
 
 If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem. Windows dark-mode behaviour and control theming draw on ideas documented in **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** (see below).
 
