@@ -43,7 +43,7 @@ cmake --build build --config Release --parallel
 - Sample [`nitty.ini`](../nitty.ini) documents only keys NiTTY actually reads; most legacy KiTTY.ini options are ignored.
 - Session logging default in portable mode is under `Logs\` with `nitty-&H-&P.log` — see [portable-config](domain/portable-config.md). Relative `kitty.log` / `putty.log` names are relocated there on load.
 - Do not document or commit secrets; portable Pageant persistence stores key **paths** only, never passphrases.
-- Ship version is `LATEST.VER` (currently aligned with upstream 0.84 lineage).
+- Ship version is `LATEST.VER` (currently aligned with upstream 0.85 lineage).
 
 Human-facing attribution, passwords-in-sessions warning, and attestation verify steps: root [README.md](../README.md).
 
