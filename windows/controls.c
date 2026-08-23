@@ -2086,6 +2086,7 @@ bool winctrl_handle_command(struct dlgparam *dp, UINT msg,
                     sizeof(lf.lfFaceName) - 1);
             lf.lfFaceName[sizeof(lf.lfFaceName) - 1] = '\0';
 
+            memset(&cf, 0, sizeof(cf));
             cf.lStructSize = sizeof(cf);
             cf.hwndOwner = dp->hwnd;
             cf.lpLogFont = &lf;

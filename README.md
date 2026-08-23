@@ -18,8 +18,17 @@ If you use NiTTY in research, documentation, or redistribution, please cite **Pu
 - **Portable & session-friendly**: Optional portable layout (ini + session files) in the spirit of KiTTY-style workflows.
 - **Windows terminal binary**: Built as **nterm.exe** with **nterm** / **ntermcfg** icons (PuTTY upstream uses the name **pterm** on Windows; NiTTY standardises on **nterm**).
 - **Extra window & session options**: Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage)—useful for automation without leaving the PuTTY family of tools.
+- **Nerd Fonts**: Line height and cell width use Windows Terminal's em-based cell model, so Powerline / Oh My Posh prompts line up instead of stretching or clipping glyphs.
 
 NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; it is an independent fork that builds on their work.
+
+---
+
+## Nerd Fonts
+
+There are several ways to draw Nerd Font / Powerline glyphs in a terminal. NiTTY follows [Windows Terminal](https://github.com/microsoft/terminal) on purpose. Cell size is a pair of unitless multipliers of font size in px (the em), not of GDI `tmHeight`. Shade blocks and solid Powerline wedges fill the cell as geometry. Outline chevrons, OS icons, and other private-use glyphs stay at the font size.
+
+Under **Window → Appearance**, set **Line height** and **Cell width**. `1.00` / `1.00` is PuTTY's square cell. A typical Nerd Font + Oh My Posh setup is `1.20` / `0.60`. Pick a Nerd Font in the same panel.
 
 ---
 

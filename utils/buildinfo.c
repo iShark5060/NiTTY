@@ -43,7 +43,22 @@ char *buildinfo(const char *newline)
      * Mostly you can tell the version just from _MSC_VER, but in some
      * cases, two different compiler versions have the same _MSC_VER
      * value, and have to be distinguished by _MSC_FULL_VER.
+     *
+     * NiTTY: VS 2022 17.4+ and VS 2026 (MSVC 14.50+, _MSC_VER 1950+)
+     * until upstream's table catches up.
      */
+#elif _MSC_VER == 1952
+    put_fmt(buf, " 2026 (MSVC 14.52)");
+#elif _MSC_VER == 1951
+    put_fmt(buf, " 2026 (MSVC 14.51)");
+#elif _MSC_VER == 1950
+    put_fmt(buf, " 2026 (MSVC 14.50)");
+#elif _MSC_VER >= 1950
+    put_fmt(buf, " 2026");
+#elif _MSC_VER >= 1940
+    put_fmt(buf, " 2022 (17.%d)", 10 + (_MSC_VER - 1940));
+#elif _MSC_VER >= 1934
+    put_fmt(buf, " 2022 (17.%d)", _MSC_VER - 1930);
 #elif _MSC_VER == 1933
     put_fmt(buf, " 2022 (17.3)");
 #elif _MSC_VER == 1932

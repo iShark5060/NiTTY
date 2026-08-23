@@ -3,7 +3,7 @@ type: Architecture Overview
 title: NiTTY fork layout
 description: Where PuTTY upstream and NiTTY-specific code live.
 tags: [architecture]
-timestamp: 2026-08-07T00:00:00Z
+timestamp: 2026-08-23T20:00:00Z
 ---
 
 # NiTTY fork layout
@@ -22,6 +22,7 @@ Depends on [portable-config](../domain/portable-config.md) for directory-mode st
 | Win11 chrome / extras | `windows/nitty_winfeat.c` |
 | Login scripts | `windows/nitty_script.c` |
 | URL open from terminal | `windows/nitty_url.c` |
+| Terminal cell metrics / Powerline | `windows/nitty_termfont.c`, thin hooks in `windows/window.c` |
 | Saved SSH password field | `windows/nitty_autologin.c`, `utils/nitty_sesspass.c` |
 | About strings | `nitty_about.h` |
 
