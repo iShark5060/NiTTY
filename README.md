@@ -17,7 +17,7 @@ If you use NiTTY in research, documentation, or redistribution, please cite **Pu
 - **Refreshed UI**: Windows 11–style dark configuration dialogs, consistent theming across tools (NiTTYgen, **Pageant**, and the terminal), and polished window chrome where supported.
 - **Portable & session-friendly**: Optional portable layout (ini + session files) in the spirit of KiTTY-style workflows.
 - **Windows terminal binary**: Built as **nterm.exe** with **nterm** / **ntermcfg** icons (PuTTY upstream uses the name **pterm** on Windows; NiTTY standardises on **nterm**).
-- **Extra window & session options**: Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage)—useful for automation without leaving the PuTTY family of tools.
+- **Extra window & session options**: Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage). Useful for automation without leaving the PuTTY family of tools.
 - **Nerd Fonts**: Line height and cell width use Windows Terminal's em-based cell model, so Powerline / Oh My Posh prompts line up instead of stretching or clipping glyphs.
 
 NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; it is an independent fork that builds on their work.
@@ -114,7 +114,7 @@ git merge putty/main
 
 After merging, verify `LATEST.VER` matches the upstream release you intend to ship, run a local or CI build, and test NiTTY-specific features (dark mode, portable config, session scripts, Pageant key persistence).
 
-If a merge conflicts in shared upstream files, prefer keeping upstream structure and re-applying any NiTTY-specific hunks manually. General bugfixes made on upstream-owned files (for example in `proxy/`, `unix/local-proxy.c`, or `windows/utils/subprocess_waiter.c`) should be checked against upstream `main` after each sync — drop them once equivalent fixes land upstream.
+If a merge conflicts in shared upstream files, prefer keeping upstream structure and re-applying any NiTTY-specific hunks manually. General bugfixes made on upstream-owned files (for example in `proxy/`, `unix/local-proxy.c`, or `windows/utils/subprocess_waiter.c`) should be checked against upstream `main` after each sync. Drop them once equivalent fixes land upstream.
 
 Tagged upstream releases are available as `putty/0.85`, `putty/0.84`, and so on if you prefer merging a specific release rather than `putty/main`.
 
@@ -158,11 +158,11 @@ That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base6
 
 ## Pageant (Windows)
 
-- **Theming:** Pageant uses the same dark (or light) configuration style as NiTTY—subclassed controls, immersive dark title bar where supported, and consistent colours—so it does not look like a half-themed system dialog beside the rest of the suite.
+- **Theming:** Pageant uses the same dark (or light) configuration style as NiTTY-subclassed controls, immersive dark title bar where supported, and consistent colours, so it does not look like a half-themed system dialog beside the rest of the suite.
 - **Portable key paths:** If you use directory-based portable config (`savemode=dir` in `nitty.ini`; see the sample file in the repo), you can optionally ask Pageant to reload a list of private key **files** on startup. Enable this under the `[Pageant]` section (`savemode=dir` + `PersistKeys=1`). Paths are stored in `<configdir>\Pageant\pageant-keys.txt` (UTF-8, one path per line) and updated when keys are added or removed.
-- **Passphrases are not saved:** That file—and this feature—stores **only paths** to key files (e.g. `.ppk`). **Passphrases are never written to disk** for persistence. Unlocked keys and remembered passphrases behave like stock Pageant: they live in memory for the running process (and are cleared when you use “forget passphrases” or exit), not in `pageant-keys.txt`.
+- **Passphrases are not saved:** That file, and this feature, stores **only paths** to key files (e.g. `.ppk`). **Passphrases are never written to disk** for persistence. Unlocked keys and remembered passphrases behave like stock Pageant: they live in memory for the running process (and are cleared when you use “forget passphrases” or exit), not in `pageant-keys.txt`.
 
-`nitty.ini` is only for portable/bootstrap flags and the small set of keys read by the portable layer; session colours, SSH options, and most behaviour still come from saved sessions or the registry—see comments in `nitty.ini` and `windows/nitty_portable.c`.
+`nitty.ini` is only for portable/bootstrap flags and the small set of keys read by the portable layer; session colours, SSH options, and most behaviour still come from saved sessions or the registry. See comments in `nitty.ini` and `windows/nitty_portable.c`.
 
 ---
 
