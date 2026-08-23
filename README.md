@@ -107,7 +107,7 @@ After merging, verify `LATEST.VER` matches the upstream release you intend to sh
 
 If a merge conflicts in shared upstream files, prefer keeping upstream structure and re-applying any NiTTY-specific hunks manually. General bugfixes made on upstream-owned files (for example in `proxy/`, `unix/local-proxy.c`, or `windows/utils/subprocess_waiter.c`) should be checked against upstream `main` after each sync — drop them once equivalent fixes land upstream.
 
-Tagged upstream releases are available as `putty/0.84`, `putty/0.83`, and so on if you prefer merging a specific release rather than `putty/main`.
+Tagged upstream releases are available as `putty/0.85`, `putty/0.84`, and so on if you prefer merging a specific release rather than `putty/main`.
 
 ---
 
