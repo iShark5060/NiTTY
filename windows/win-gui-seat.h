@@ -65,6 +65,8 @@ struct WinGuiSeat {
 
     int extra_width, extra_height;
     int font_width, font_height;
+    int font_natural_width, font_natural_height;
+    int font_text_yoff;
     bool font_dualwidth, font_varpitch;
     int offset_width, offset_height;
     bool was_zoomed;

@@ -22,6 +22,7 @@
 #include "win-gui-seat.h"
 #include "nitty_winfeat.h"
 #include "nitty_url.h"
+#include "nitty_termfont.h"
 #include "tree234.h"
 
 #ifdef NO_MULTIMON
@@ -1501,6 +1502,7 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
     int quality;
     HDC hdc;
     int fw_dontcare, fw_bold;
+    int font_em;
 
     for (i = 0; i < FONT_MAXNO; i++)
         wgs->fonts[i] = NULL;
@@ -1534,6 +1536,9 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
         }
     }
     wgs->font_width = pick_width;
+    font_em = (wgs->font_height < 0) ? -wgs->font_height : wgs->font_height;
+    if (font_em < 1)
+        font_em = 1;
 
     quality = conf_get_int(wgs->conf, CONF_font_quality);
 #define f(i,c,w,u)                                                      \
@@ -1565,6 +1570,14 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
         wgs->font_height = tm.tmHeight;
         wgs->font_width = get_font_width(wgs, hdc, &tm);
     }
+    wgs->font_natural_width = wgs->font_width;
+    wgs->font_natural_height = wgs->font_height;
+    wgs->font_text_yoff = 0;
+    if (pick_width == 0 || pick_height == 0)
+        nitty_apply_font_cell_scale(wgs->conf, font_em,
+                                    wgs->font_natural_height,
+                                    &wgs->font_width, &wgs->font_height,
+                                    &wgs->font_text_yoff);
 
     {
         CHARSETINFO info;
@@ -1641,9 +1654,11 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
     }
 #undef f
 
-    wgs->descent = tm.tmAscent + 1;
+    wgs->descent = wgs->font_text_yoff + tm.tmAscent + 1;
     if (wgs->descent >= wgs->font_height)
         wgs->descent = wgs->font_height - 1;
+    if (wgs->descent < 0)
+        wgs->descent = 0;
 
     for (i = 0; i < 3; i++) {
         if (wgs->fonts[i]) {
@@ -2644,6 +2659,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
                     conf_get_int(prev_conf, CONF_vtmode) ||
                     conf_get_int(wgs->conf, CONF_bold_style) !=
                     conf_get_int(prev_conf, CONF_bold_style) ||
+                    conf_get_int(wgs->conf, CONF_nitty_line_height) !=
+                    conf_get_int(prev_conf, CONF_nitty_line_height) ||
+                    conf_get_int(wgs->conf, CONF_nitty_cell_width) !=
+                    conf_get_int(prev_conf, CONF_nitty_cell_width) ||
                     resize_action == RESIZE_DISABLED ||
                     resize_action == RESIZE_EITHER ||
                     resize_action != conf_get_int(prev_conf,
@@ -3849,6 +3868,7 @@ static void do_text_internal(
     }
 
     SelectObject(wgs->wintw_hdc, wgs->fonts[nfont]);
+    text_adjust += wgs->font_text_yoff;
     SetTextColor(wgs->wintw_hdc, fg);
     SetBkColor(wgs->wintw_hdc, bg);
     if (attr & TATTR_COMBINING)
@@ -3881,6 +3901,19 @@ static void do_text_internal(
     /* Only want the left half of double width lines */
     if (line_box.right > wgs->font_width*wgs->term->cols+wgs->offset_width)
         line_box.right = wgs->font_width*wgs->term->cols+wgs->offset_width;
+
+    if (nitty_draw_special_run(wgs->wintw_hdc, line_box, char_width,
+                               text, len, fg, bg)) {
+        if (lattr != LATTR_TOP &&
+            (force_manual_underline ||
+             (wgs->und_mode == UND_LINE && (attr & ATTR_UNDER))))
+            draw_horizontal_line_on_text(
+                wgs, wgs->descent, lattr, line_box, fg);
+        if (attr & ATTR_STRIKE)
+            draw_horizontal_line_on_text(
+                wgs, wgs->font_strikethrough_y, lattr, line_box, fg);
+        goto out;
+    }
 
     if (wgs->font_varpitch) {
         /*
@@ -4111,8 +4144,17 @@ static void wintw_draw_text(
             text++;
             a = TATTR_COMBINING;
         }
-    } else
-        do_text_internal(wgs, x, y, text, len, attr, lattr, truecolour);
+    } else {
+        int i = 0, col = x;
+        int step = (attr & ATTR_WIDE) ? 2 : 1;
+        while (i < len) {
+            int n = nitty_next_glyph_run(text, len, i) - i;
+            do_text_internal(wgs, col, y, text + i, n, attr, lattr,
+                             truecolour);
+            col += n * step;
+            i += n;
+        }
+    }
 }
 
 static void wintw_draw_cursor(
@@ -4269,8 +4311,11 @@ static int wintw_char_width(TermWin *tw, int uc)
             return 0;
     }
 
-    ibuf += wgs->font_width / 2 -1;
-    ibuf /= wgs->font_width;
+    if (wgs->font_natural_width < 1)
+        return 1;
+
+    ibuf += wgs->font_natural_width / 2 - 1;
+    ibuf /= wgs->font_natural_width;
 
     return ibuf;
 }

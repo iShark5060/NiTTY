@@ -464,6 +464,11 @@ static LRESULT CALLBACK nitty_edit_subclass(
          * full client with the edit brush, then redraw field + chevron only
          * — same idea as win32-darkmodelib owner-draw combo, without the
          * GetWindowDC frame pass on top of the themed control.
+         *
+         * CBS_DROPDOWN (Translation charset, etc.) owns a child Edit.
+         * Filling the whole client after DefSubclassProc paints over that
+         * child, so the selection blinks on hover and vanishes on killfocus.
+         * CBS_DROPDOWNLIST (Proxy type, etc.) has no child; we DrawText.
          */
         if (!isCombo)
             nitty_overpaint_border(hwnd);
@@ -477,8 +482,12 @@ static LRESULT CALLBACK nitty_edit_subclass(
             if (GetComboBoxInfo(hwnd, &cbi)) {
                 HDC hdc = GetDC(hwnd);
                 RECT cr;
+                bool editable = (style == CBS_DROPDOWN && cbi.hwndItem);
 
                 GetClientRect(hwnd, &cr);
+                if (editable)
+                    ExcludeClipRect(hdc, cbi.rcItem.left, cbi.rcItem.top,
+                                    cbi.rcItem.right, cbi.rcItem.bottom);
                 FillRect(hdc, &cr, t->br_edit);
 
                 if (style == CBS_DROPDOWNLIST) {
@@ -530,6 +539,8 @@ static LRESULT CALLBACK nitty_edit_subclass(
                 }
 
                 ReleaseDC(hwnd, hdc);
+                if (editable)
+                    InvalidateRect(cbi.hwndItem, NULL, FALSE);
             }
         }
 
@@ -592,6 +603,10 @@ static BOOL CALLBACK theme_child_cb(HWND hwnd, LPARAM lp)
         }
     } else if (!_stricmp(cls, "Edit") || !_stricmp(cls, "ComboBox") ||
                !_stricmp(cls, "ListBox")) {
+        HWND parent;
+        char pcls[64];
+        bool combo_edit = false;
+
         /*
          * DarkMode_Explorer gives dark scrollbars on all edits (including
          * readonly multiline ones like the NiTTYgen public-key box).
@@ -599,11 +614,22 @@ static BOOL CALLBACK theme_child_cb(HWND hwnd, LPARAM lp)
          * nitty_config_theme_ctlcolor handles that with the edit brush,
          * so the client area stays dark while Explorer theming skins the
          * scrollbar.
+         *
+         * The inner Edit of a CBS_DROPDOWN must not get nitty_edit_subclass:
+         * that handler's GetWindowDC frame pass eats the visible text.
+         * Theme + WM_CTLCOLOREDIT is enough for that child.
          */
+        parent = GetParent(hwnd);
+        if (!_stricmp(cls, "Edit") && parent &&
+            GetClassNameA(parent, pcls, sizeof(pcls)) &&
+            !_stricmp(pcls, "ComboBox"))
+            combo_edit = true;
+
         SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
         nitty_allow_dark_mode_for_window(hwnd, true);
-        SetWindowSubclass(hwnd, nitty_edit_subclass,
-                          NITTY_EDIT_SUBCLASS_ID, (DWORD_PTR)t);
+        if (!combo_edit)
+            SetWindowSubclass(hwnd, nitty_edit_subclass,
+                              NITTY_EDIT_SUBCLASS_ID, (DWORD_PTR)t);
     } else if (!_stricmp(cls, "SysTreeView32") ||
                !_stricmp(cls, "SysListView32")) {
         SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);

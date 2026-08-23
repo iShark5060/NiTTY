@@ -10,6 +10,7 @@
 #include "dialog.h"
 #include "storage.h"
 #include "nitty_winfeat.h"
+#include "nitty_termfont.h"
 
 static void about_handler(dlgcontrol *ctrl, dlgparam *dlg,
                           void *data, int event)
@@ -235,6 +236,18 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, bool has_help,
                       "Non-Antialiased", I(FQ_NONANTIALIASED),
                       "ClearType", I(FQ_CLEARTYPE),
                       "Default", I(FQ_DEFAULT));
+    ctrl_columns(s, 2, 50, 50);
+    c = ctrl_editbox(s, "Line height:", NO_SHORTCUT, 50,
+                     HELPCTX(appearance_font),
+                     nitty_cell_scale_handler, I(CONF_nitty_line_height),
+                     P(NULL));
+    c->column = 0;
+    c = ctrl_editbox(s, "Cell width:", NO_SHORTCUT, 50,
+                     HELPCTX(appearance_font),
+                     nitty_cell_scale_handler, I(CONF_nitty_cell_width),
+                     P(NULL));
+    c->column = 1;
+    ctrl_columns(s, 1, 100);
 
     /*
      * Cyrillic Lock is a horrid misfeature even on Windows, and

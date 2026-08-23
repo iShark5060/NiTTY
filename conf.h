@@ -1385,3 +1385,14 @@ CONF_OPTION(nitty_url_ctrl_click,
     DEFAULT_BOOL(true),
     SAVE_KEYWORD("NiTTYUrlCtrlClick"),
 )
+/* NiTTY: cell size hundredths (100 = 1.00). */
+CONF_OPTION(nitty_line_height,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(100),
+    SAVE_KEYWORD("NiTTYLineHeight"),
+)
+CONF_OPTION(nitty_cell_width,
+    VALUE_TYPE(INT),
+    DEFAULT_INT(100),
+    SAVE_KEYWORD("NiTTYCellWidth"),
+)
