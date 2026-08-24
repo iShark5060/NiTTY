@@ -33,6 +33,17 @@ void nitty_apply_font_cell_scale(Conf *conf, int em, int natural_h,
     int cw = conf_get_int(conf, CONF_nitty_cell_width);
     int lh = conf_get_int(conf, CONF_nitty_line_height);
 
+    /*
+     * 1.00 / 1.00 keeps GDI tmAveCharWidth × tmHeight (stock PuTTY).
+     * Any other pair is an em multiplier, Windows Terminal style.
+     * Courier New at 10px is about 0.6em wide; forcing a 1.00em cell
+     * is what made MOTD text look letter-spaced.
+     */
+    if (cw == 100 && lh == 100) {
+        *text_yoff = 0;
+        return;
+    }
+
     if (em < 1)
         em = natural_h > 0 ? natural_h : 1;
     *cell_w = nitty_scale_font_px(em, cw);

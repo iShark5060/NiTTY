@@ -21,7 +21,7 @@ Windows Terminal reference:
 - Line height 1.2, cell width 0.6
 - Theme: `~/Documents/PowerShell/blackbird.json`
 
-NiTTY has the same knobs under Window → Appearance, below font quality: **Line height** and **Cell width**. Both are unitless multipliers of font size in px (the em), matching Windows Terminal AtlasEngine: `"cellHeight": "1.2"` is `1.2 * em`, not `1.2 * tmHeight`. 1.00 is square cells. For this prompt use 1.20 and 0.60.
+NiTTY has the same knobs under Window → Appearance, below font quality: **Line height** and **Cell width**. `1.00` / `1.00` leaves GDI's native cell (`tmAveCharWidth` × `tmHeight`). Any other pair is a unitless multiplier of font size in px (the em), matching Windows Terminal AtlasEngine: `"cellHeight": "1.2"` is `1.2 * em`, not `1.2 * tmHeight`. For this prompt use 1.20 and 0.60.
 
 Windows Terminal does not stretch the Nerd Font for Powerline. AtlasEngine replaces box drawing (`U+2500`–`U+259F`) and Powerline separators (`U+E0B0`–`U+E0BF`) with builtin vector shapes that fill the cell. `U+E0C7` is not in that set, so it stays at the font size. NiTTY matches that split in `windows/nitty_termfont.c`: solid wedges `U+E0B0` / `U+E0B2` are GDI polygons that fill the cell; shades `U+2591`–`U+2593` are an 8×8 dither; outline `U+E0B1`, icons, and `U+E0C7` stay at the session font with one shared vertical offset.
 

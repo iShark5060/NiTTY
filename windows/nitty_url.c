@@ -21,7 +21,50 @@ static bool url_char(wchar_t c)
     return true;
 }
 
-static bool line_char_at(termline *ld, int termcols, int j, wchar_t *out)
+/*
+ * UTF-8 ASCII is stored as CSET_ASCII | byte (the 0xD800 page), not as
+ * Unicode 'h'. Copy-paste already maps this via unitab_*; URL matching
+ * has to do the same or https:// never compares equal to L"https://".
+ */
+static wchar_t termchr_to_wchar(Terminal *term, unsigned long uc)
+{
+    if (uc == UCSWIDE)
+        return L' ';
+
+    if (term && term->ucsdata) {
+        switch (uc & CSET_MASK) {
+          case CSET_LINEDRW:
+            if (!term->rawcnp) {
+                uc = term->ucsdata->unitab_xterm[uc & 0xFF];
+                break;
+            }
+            /* fall through */
+          case CSET_ASCII:
+            uc = term->ucsdata->unitab_line[uc & 0xFF];
+            break;
+          case CSET_SCOACS:
+            uc = term->ucsdata->unitab_scoacs[uc & 0xFF];
+            break;
+        }
+        switch (uc & CSET_MASK) {
+          case CSET_ACP:
+            uc = term->ucsdata->unitab_font[uc & 0xFF];
+            break;
+          case CSET_OEMCP:
+            uc = term->ucsdata->unitab_oemcp[uc & 0xFF];
+            break;
+        }
+    } else if (DIRECT_CHAR(uc)) {
+        uc &= 0xFF;
+    }
+
+    if (uc >= 0x10000)
+        return L'?';
+    return (wchar_t)uc;
+}
+
+static bool line_char_at(Terminal *term, termline *ld, int termcols, int j,
+                         wchar_t *out)
 {
     unsigned long c;
 
@@ -30,21 +73,18 @@ static bool line_char_at(termline *ld, int termcols, int j, wchar_t *out)
     c = ld->chars[j].chr;
     if (c == UCSWIDE)
         return false;
-    if (c >= 0x10000)
-        *out = L'?';
-    else
-        *out = (wchar_t)c;
+    *out = termchr_to_wchar(term, c);
     return true;
 }
 
-static bool find_url_containing(termline *ld, int termcols, int cols,
-                                int vx, wchar_t *url, size_t urllen)
+static bool find_url_containing(Terminal *term, termline *ld, int termcols,
+                                int cols, int vx, wchar_t *url, size_t urllen)
 {
     wchar_t line[512];
     int i, len = 0;
 
     for (i = 0; i < cols && len < (int)lenof(line) - 1; i++) {
-        if (!line_char_at(ld, termcols, i, line + len))
+        if (!line_char_at(term, ld, termcols, i, line + len))
             line[len++] = L' ';
         else
             len++;
@@ -62,8 +102,9 @@ static bool find_url_containing(termline *ld, int termcols, int cols,
         for (si = 0; si < lenof(schemes); si++) {
             size_t sl = wcslen(schemes[si]);
 
+            /* wmemcmp count is wchar_t units, not bytes. */
             if ((size_t)(len - i) >= sl &&
-                !wmemcmp(line + i, schemes[si], sl * sizeof(wchar_t))) {
+                !wmemcmp(line + i, schemes[si], sl)) {
                 start = i;
                 end = (int)(i + sl);
                 if (si == lenof(schemes) - 1)
@@ -117,7 +158,8 @@ bool nitty_url_open_at(Terminal *term, Conf *conf, int vx, int vy)
     if (!ld)
         return false;
 
-    if (!find_url_containing(ld, term->cols, term->cols, vx, url, lenof(url))) {
+    if (!find_url_containing(term, ld, term->cols, term->cols, vx, url,
+                             lenof(url))) {
         term_release_line(ld);
         return false;
     }
@@ -146,7 +188,8 @@ bool nitty_url_set_cursor(Terminal *term, Conf *conf, int vx, int vy,
     if (!ld)
         return false;
 
-    if (!find_url_containing(ld, term->cols, term->cols, vx, url, lenof(url))) {
+    if (!find_url_containing(term, ld, term->cols, term->cols, vx, url,
+                             lenof(url))) {
         term_release_line(ld);
         return false;
     }
