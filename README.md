@@ -168,7 +168,7 @@ That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base6
 
 ## Development
 
-Agent-oriented docs: [openwiki/quickstart.md](openwiki/quickstart.md).
+Agent notes: [AGENTS.md](AGENTS.md).
 
 Engineering standards: AppBase `docs/org-standards/` with [personal-repos.md](https://github.com/Dark-Avian-Labs/AppBase/blob/main/docs/org-standards/personal-repos.md) (GitHub-hosted runners).
 
