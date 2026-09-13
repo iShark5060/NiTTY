@@ -1,28 +1,26 @@
 # NiTTY
 
-[![PR](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml/badge.svg)](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml)
-![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake&logoColor=white)
-![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white)
-[![Cursor](https://img.shields.io/badge/Cursor-IDE-141414?logo=cursor&logoColor=white)](https://cursor.com)
+[![PR](https://img.shields.io/github/actions/workflow/status/iShark5060/NiTTY/pr.yml?style=flat-square&label=PR)](https://github.com/iShark5060/NiTTY/actions/workflows/pr.yml)
+![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake&logoColor=white&style=flat-square)
+![Windows](https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white&style=flat-square)
+[![Cursor](https://img.shields.io/badge/Cursor-IDE-141414?logo=cursor&logoColor=white&style=flat-square)](https://cursor.com)
 
-NiTTY is a Windows-first SSH, Telnet, and serial terminal based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. Same protocols and reliability. Dark-themed configuration UI and extras inspired by community forks, especially [KiTTY](https://www.9bis.net/kitty/).
+NiTTY is a Windows-first SSH, Telnet, and serial terminal based on the [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) codebase. Same protocols, same reliability. A dark configuration UI, and extras inspired by community forks, especially [KiTTY](https://www.9bis.net/kitty/).
 
-If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem. Windows dark-mode behaviour and control theming draw on ideas documented in **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** (see below).
+If you already live in PuTTY, this should feel familiar. Sessions, Pageant, Plink, PuTTYgen. The window chrome is just less 1999.
 
----
+If you use NiTTY in research, documentation, or redistribution, please cite **PuTTY** as the upstream project and acknowledge **KiTTY** where features trace to that ecosystem. Windows dark-mode behaviour draws on ideas documented in **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)**.
+
+NiTTY is not affiliated with the official PuTTY team or the KiTTY project.
 
 ## Why NiTTY?
 
-- **PuTTY’s core**: SSH, Telnet, Rlogin, SUPDUP, serial, Pageant, Plink, PuTTYgen workflow, and the same general configuration model.
-- **Refreshed UI**: Windows 11–style dark configuration dialogs, consistent theming across tools (NiTTYgen, **Pageant**, and the terminal), and polished window chrome where supported.
-- **Portable & session-friendly**: Optional portable layout (ini + session files) in the spirit of KiTTY-style workflows.
-- **Windows terminal binary**: Built as **nterm.exe** with **nterm** / **ntermcfg** icons (PuTTY upstream uses the name **pterm** on Windows; NiTTY standardises on **nterm**).
-- **Extra window & session options**: Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage). Useful for automation without leaving the PuTTY family of tools.
-- **Nerd Fonts**: Line height and cell width use Windows Terminal's em-based cell model, so Powerline / Oh My Posh prompts line up instead of stretching or clipping glyphs.
-
-NiTTY is **not** affiliated with the official PuTTY team or the KiTTY project; it is an independent fork that builds on their work.
-
----
+- **PuTTY's core.** SSH, Telnet, Rlogin, SUPDUP, serial, Pageant, Plink, PuTTYgen, and the same configuration model.
+- **Refreshed UI.** Windows 11-style dark configuration dialogs, consistent theming across NiTTYgen, Pageant, and the terminal.
+- **Portable and session-friendly.** Optional portable layout (ini + session files) in the spirit of KiTTY-style workflows.
+- **Windows terminal binary.** Built as `nterm.exe` with `nterm` / `ntermcfg` icons. PuTTY upstream uses `pterm` on Windows; NiTTY standardises on `nterm`.
+- **Extra window and session options.** Layered transparency, minimize-to-tray, clickable URLs, and RuTTY-style session scripts (KiTTY-compatible keywords in storage).
+- **Nerd Fonts.** Line height and cell width use Windows Terminal's em-based cell model, so Powerline / Oh My Posh prompts line up instead of stretching or clipping glyphs.
 
 ## Nerd Fonts
 
@@ -30,105 +28,32 @@ There are several ways to draw Nerd Font / Powerline glyphs in a terminal. NiTTY
 
 Under **Window → Appearance**, set **Line height** and **Cell width**. `1.00` / `1.00` is the font's native GDI cell (stock PuTTY: `tmAveCharWidth` × `tmHeight`). A typical Nerd Font + Oh My Posh setup is `1.20` / `0.60`, matching Windows Terminal's em multipliers. Pick a Nerd Font in the same panel.
 
----
-
 ## Attribution
 
-| Project                                                               | Role                                                                                                                                                                                                                                                                           |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)**      | Original design, protocols, security model, and the majority of the source tree. Copyright © 1997– Simon Tatham and contributors.                                                                                                                                              |
-| **[KiTTY](https://www.9bis.net/kitty/)**                              | A long-running PuTTY fork that popularized many Windows UX and session features. NiTTY gratefully adopts ideas and compatibility hooks from that lineage (e.g. session script concepts and registry keyword patterns where noted in code).                                     |
-| **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** | A C++ library for dark mode and themed Win32 controls. NiTTY does not ship it as a dependency, but its techniques (e.g. undocumented UxTheme hooks, `WM_CTLCOLOR*` handling for read-only edits, scrollbar theming) informed the Windows configuration UI and related tooling. |
+| Project                                                               | Role                                                                                                                                                                               |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)**      | Original design, protocols, security model, and the majority of the source tree. Copyright © 1997– Simon Tatham and contributors.                                                  |
+| **[KiTTY](https://www.9bis.net/kitty/)**                              | A long-running PuTTY fork that popularized many Windows UX and session features. NiTTY adopts ideas and compatibility hooks from that lineage.                                     |
+| **[win32-darkmodelib](https://github.com/ozone10/win32-darkmodelib)** | A C++ library for dark mode and themed Win32 controls. NiTTY does not ship it as a dependency, but its techniques informed the Windows configuration UI.                           |
 
-Upstream PuTTY remains the reference for behaviour, security updates, and documentation unless this repository states otherwise. When reporting security-sensitive issues, consider whether they belong in **upstream PuTTY** first.
-
----
-
-## Requirements
-
-- CMake 3.x
-- Visual Studio 2022 or 2026 (Desktop development with C++)
-
-## Quick start
-
-```bash
-cmake -S . -B build -G "Visual Studio 18 2026" -A x64
-cmake --build build --config Release
-```
-
-## Scripts
-
-| Script                 | Description                                        |
-| ---------------------- | -------------------------------------------------- |
-| `scripts/validate.ps1` | CMake configure + Release build (CI quality gate). |
+Upstream PuTTY remains the reference for behaviour, security updates, and documentation unless this repository states otherwise. When reporting security-sensitive issues, consider whether they belong in upstream PuTTY first.
 
 ## Building
 
-NiTTY uses **CMake** (3.x). From the repository root:
-
-```bash
-cmake -S . -B build
-```
-
-On Windows with **Visual Studio**, use a generator matching your installed version, for example:
+CMake 3.x and Visual Studio 2022 or 2026 (Desktop development with C++).
 
 ```bash
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release
 ```
 
-On older toolchains, `"Visual Studio 17 2022"` remains supported. The GitHub Actions release workflow auto-detects between VS 2026 and VS 2022.
+`"Visual Studio 17 2022"` remains supported. The GitHub Actions release workflow auto-detects between VS 2026 and VS 2022.
 
-Install (Unix):
-
-```bash
-cmake --build build --target install
-```
-
-See the plain [`README`](README) file in this directory for additional notes (e.g. Unix `pterm` privileges, documentation builds with Halibut).
-
----
-
-## Upstream sync
-
-NiTTY tracks [official PuTTY](https://git.tartarus.org/?p=simon/putty.git). Add the upstream remote once per clone:
-
-```bash
-git remote add putty https://git.tartarus.org/simon/putty.git
-git fetch putty
-```
-
-Check what upstream has that NiTTY does not yet have:
-
-```bash
-git fetch putty
-git log --oneline HEAD..putty/main
-```
-
-Merge upstream changes (resolve any conflicts in shared files; NiTTY-specific code is mostly under `nitty_*.c/h`, `windows/nitty_*.c`, and related config):
-
-```bash
-git fetch putty
-git merge putty/main
-```
-
-After merging, verify `LATEST.VER` matches the upstream release you intend to ship, run a local or CI build, and test NiTTY-specific features (dark mode, portable config, session scripts, Pageant key persistence).
-
-If a merge conflicts in shared upstream files, prefer keeping upstream structure and re-applying any NiTTY-specific hunks manually. General bugfixes made on upstream-owned files (for example in `proxy/`, `unix/local-proxy.c`, or `windows/utils/subprocess_waiter.c`) should be checked against upstream `main` after each sync. Drop them once equivalent fixes land upstream.
-
-Tagged upstream releases are available as `putty/0.85`, `putty/0.84`, and so on if you prefer merging a specific release rather than `putty/main`.
-
----
-
-## Documentation
-
-PuTTY’s manuals are built from the `.but` sources under `doc/` using [Halibut](https://www.chiark.greenend.org.uk/~sgtatham/halibut/). Prebuilt snapshots often ship docs; building from a bare clone may require generating them yourself.
-
----
+See the plain [`README`](README) file in this directory for Unix notes and Halibut documentation builds.
 
 ## Verifying release downloads
 
-Official Windows x64 release zips are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) and signed with [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds) (SLSA build provenance via Sigstore).
+Official Windows x64 release zips are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) and signed with [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds).
 
 After downloading a release zip from GitHub, verify it with the [GitHub CLI](https://cli.github.com/) (v2.49.0 or newer):
 
@@ -136,45 +61,31 @@ After downloading a release zip from GitHub, verify it with the [GitHub CLI](htt
 gh attestation verify NiTTY-0.83-win64.zip --repo iShark5060/NiTTY
 ```
 
-Replace `0.83` with the release version and use the actual zip filename from the release. A successful verification confirms the archive was produced by the project’s release workflow and has not been altered since.
-
----
+Replace `0.83` with the release version and use the actual zip filename from the release.
 
 ## Licence
 
-NiTTY inherits PuTTY’s licence. See the [`LICENCE`](LICENCE) file in this repository.
-
----
+NiTTY inherits PuTTY's licence. See the [`LICENCE`](LICENCE) file in this repository.
 
 ## Saved sessions and SSH passwords
 
-NiTTY can **store the SSH login password** in a saved session (the same `Password` field used on **Connection → Data**), so it is written to the Windows registry or to portable session files alongside other settings.
+NiTTY can store the SSH login password in a saved session (the same `Password` field used on **Connection → Data**), so it is written to the Windows registry or to portable session files alongside other settings.
 
-That value is **not stored in plain text**: it is **obfuscated** (XOR plus Base64, keyed by the session name) before being saved. That makes it harder to accidentally copy a readable password out of a config export or a quick glance at a file.
+That value is not stored in plain text. It is obfuscated (XOR plus Base64, keyed by the session name) before being saved. That makes it harder to accidentally copy a readable password out of a config export.
 
-**Security warning:** this is **not encryption you should trust for secrecy**. The obfuscation can be **reversed** by anyone who can read the source or the running binary, or who controls the machine. Treat it as a **convenience and casual deterrent**, not protection against a motivated attacker. For real secrets, use SSH keys, a password manager, or another mechanism that matches your threat model.
-
----
+This is not encryption you should trust for secrecy. The obfuscation can be reversed by anyone who can read the source or the running binary, or who controls the machine. Treat it as a convenience and casual deterrent. For real secrets, use SSH keys or a password manager.
 
 ## Pageant (Windows)
 
-- **Theming:** Pageant uses the same dark (or light) configuration style as NiTTY-subclassed controls, immersive dark title bar where supported, and consistent colours, so it does not look like a half-themed system dialog beside the rest of the suite.
-- **Portable key paths:** If you use directory-based portable config (`savemode=dir` in `nitty.ini`; see the sample file in the repo), you can optionally ask Pageant to reload a list of private key **files** on startup. Enable this under the `[Pageant]` section (`savemode=dir` + `PersistKeys=1`). Paths are stored in `<configdir>\Pageant\pageant-keys.txt` (UTF-8, one path per line) and updated when keys are added or removed.
-- **Passphrases are not saved:** That file, and this feature, stores **only paths** to key files (e.g. `.ppk`). **Passphrases are never written to disk** for persistence. Unlocked keys and remembered passphrases behave like stock Pageant: they live in memory for the running process (and are cleared when you use “forget passphrases” or exit), not in `pageant-keys.txt`.
+- **Theming.** Pageant uses the same dark (or light) configuration style as NiTTY-subclassed controls, so it does not look like a half-themed system dialog beside the rest of the suite.
+- **Portable key paths.** If you use directory-based portable config (`savemode=dir` in `nitty.ini`), you can optionally ask Pageant to reload a list of private key files on startup. Enable this under the `[Pageant]` section (`savemode=dir` + `PersistKeys=1`). Paths are stored in `<configdir>\Pageant\pageant-keys.txt` (UTF-8, one path per line).
+- **Passphrases are not saved.** That file stores only paths to key files. Unlocked keys and remembered passphrases behave like stock Pageant: they live in memory for the running process.
 
-`nitty.ini` is only for portable/bootstrap flags and the small set of keys read by the portable layer; session colours, SSH options, and most behaviour still come from saved sessions or the registry. See comments in `nitty.ini` and `windows/nitty_portable.c`.
-
----
-
-## Development
-
-Agent notes: [AGENTS.md](AGENTS.md).
-
-Engineering standards: AppBase `docs/org-standards/` with [personal-repos.md](https://github.com/Dark-Avian-Labs/AppBase/blob/main/docs/org-standards/personal-repos.md) (GitHub-hosted runners).
+`nitty.ini` is only for portable/bootstrap flags. Session colours, SSH options, and most behaviour still come from saved sessions or the registry.
 
 ## Links
 
 - PuTTY home: <https://www.chiark.greenend.org.uk/~sgtatham/putty/>
 - KiTTY: <https://www.9bis.net/kitty/>
-- win32-darkmodelib (theming reference): <https://github.com/ozone10/win32-darkmodelib>
+- win32-darkmodelib: <https://github.com/ozone10/win32-darkmodelib>
 - CMake: <https://cmake.org/>
