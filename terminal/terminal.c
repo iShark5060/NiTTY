@@ -2164,6 +2164,10 @@ void term_free(Terminal *term)
 
     conf_free(term->conf);
 
+    sfree(term->last_selected_text);
+    sfree(term->last_selected_attr);
+    sfree(term->last_selected_tc);
+
     sfree(term->window_title);
     sfree(term->icon_title);
 
@@ -3645,10 +3649,6 @@ unsigned long term_translate(
                 (t < 0x200000 && utf8->size >= 4) ||
                 (t < 0x4000000 && utf8->size >= 5))
                 return UCSINVALID;
-
-            /* Unicode line separator and paragraph separator are CR-LF */
-            if (t == 0x2028 || t == 0x2029)
-                return 0x85;
 
             /* High controls are probably a Baaad idea too. */
             if (t < 0xA0)
@@ -6709,10 +6709,11 @@ static void clipme(Terminal *term, pos top, pos bottom, bool rect, bool desel,
                 continue;
             }
 
+            attr = ldata->chars[x].attr;
+            tc = ldata->chars[x].truecolour;
+
             while (1) {
                 int uc = ldata->chars[x].chr;
-                attr = ldata->chars[x].attr;
-                tc = ldata->chars[x].truecolour;
 
                 switch (uc & CSET_MASK) {
                   case CSET_LINEDRW:
