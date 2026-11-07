@@ -2021,7 +2021,7 @@ connections through a \i{SOCKS server}.
 user can make a Telnet or TCP connection directly to the firewall machine
 and enter a command such as \c{connect myhost.com 22} to connect
 through to an external host. Selecting \I{Telnet proxy}\q{Telnet}
-allows you to tell PuTTY to use this type of proxy, with the precise           
+allows you to tell PuTTY to use this type of proxy, with the precise
 command specified as described in \k{config-proxy-command}.
 
 \b There are several ways to use a SSH server as a proxy. All of
@@ -2990,11 +2990,17 @@ you directly to the terminal login prompt of a legacy mainframe.) So
 enabling this option might cause some kinds of session to stop
 working. It's up to you.
 
-\S{config-ssh-tryagent} \q{Attempt authentication using Pageant}
+\S{config-ssh-tryagent} \q{Attempt authentication using the SSH agent}
 
-If this option is enabled, then PuTTY will look for Pageant (the SSH
-private-key storage agent) and attempt to authenticate with any
-suitable public keys Pageant currently holds.
+If this option is enabled, then PuTTY will look for an SSH agent and
+attempt to authenticate with any suitable public keys that agent
+currently holds.
+
+On Windows, Pageant is tried first. If Pageant is not running, PuTTY
+uses the Windows OpenSSH agent pipe
+(\c{\\\\.\\pipe\\openssh-ssh-agent}). The Bitwarden desktop app
+listens on that same pipe. Pageant and that pipe are not merged: quit
+Pageant if the OpenSSH agent should answer.
 
 This behaviour is almost always desirable, and is therefore enabled
 by default. In rare cases you might need to turn it off in order to

@@ -8,6 +8,7 @@
 
 #include "putty.h"
 #include "pageant.h" /* for AGENT_MAX_MSGLEN */
+#include "nitty_openssh_agent.h"
 
 #include "security-api.h"
 #include "cryptoapi.h"
@@ -125,8 +126,18 @@ static void wm_copydata_agent_query(strbuf *query, void **out, int *outlen)
 
 Socket *agent_connect(Plug *plug)
 {
-    char *pipename = agent_named_pipe_name();
-    Socket *s = new_named_pipe_client(pipename, plug);
+    char *pipename;
+    Socket *s;
+
+    /* Pageant wins when it is running. Otherwise use the OpenSSH pipe. */
+    if (!pageant_exists()) {
+        s = nitty_openssh_agent_connect(plug);
+        if (s)
+            return s;
+    }
+
+    pipename = agent_named_pipe_name();
+    s = new_named_pipe_client(pipename, plug);
     sfree(pipename);
     return s;
 }
@@ -143,9 +154,14 @@ static bool named_pipe_agent_exists(void)
     return true;
 }
 
-bool agent_exists(void)
+bool pageant_exists(void)
 {
     return named_pipe_agent_exists() || wm_copydata_agent_exists();
+}
+
+bool agent_exists(void)
+{
+    return pageant_exists() || nitty_openssh_agent_exists();
 }
 
 struct agent_pending_query {
@@ -197,19 +213,13 @@ static size_t named_pipe_agent_gotdata(
     return 0;
 }
 
-static agent_pending_query *named_pipe_agent_query(
+static agent_pending_query *named_pipe_agent_query_handle(
+    HANDLE pipehandle,
     strbuf *query, void **out, int *outlen,
     void (*callback)(void *, void *, int), void *callback_ctx)
 {
     agent_pending_query *pq = NULL;
-    char *err = NULL, *pipename = NULL;
     strbuf *sb = NULL;
-    HANDLE pipehandle;
-
-    pipename = agent_named_pipe_name();
-    pipehandle = connect_to_named_pipe(pipename, &err);
-    if (pipehandle == INVALID_HANDLE_VALUE)
-        goto failure;
 
     strbuf_finalise_agent_query(query);
 
@@ -261,13 +271,47 @@ static agent_pending_query *named_pipe_agent_query(
     pq = NULL;
 
   out:
-    sfree(err);
-    sfree(pipename);
     if (pipehandle != INVALID_HANDLE_VALUE)
         CloseHandle(pipehandle);
     if (sb)
         strbuf_free(sb);
     return pq;
+}
+
+static agent_pending_query *named_pipe_agent_query(
+    strbuf *query, void **out, int *outlen,
+    void (*callback)(void *, void *, int), void *callback_ctx)
+{
+    char *err = NULL;
+    char *pipename = agent_named_pipe_name();
+    HANDLE pipehandle = connect_to_named_pipe(pipename, &err);
+
+    sfree(pipename);
+    sfree(err);
+    if (pipehandle == INVALID_HANDLE_VALUE) {
+        *out = NULL;
+        *outlen = 0;
+        return NULL;
+    }
+    return named_pipe_agent_query_handle(
+        pipehandle, query, out, outlen, callback, callback_ctx);
+}
+
+static agent_pending_query *openssh_pipe_agent_query(
+    strbuf *query, void **out, int *outlen,
+    void (*callback)(void *, void *, int), void *callback_ctx)
+{
+    char *err = NULL;
+    HANDLE pipehandle = nitty_openssh_agent_open(&err);
+
+    sfree(err);
+    if (pipehandle == INVALID_HANDLE_VALUE) {
+        *out = NULL;
+        *outlen = 0;
+        return NULL;
+    }
+    return named_pipe_agent_query_handle(
+        pipehandle, query, out, outlen, callback, callback_ctx);
 }
 
 void agent_cancel_query(agent_pending_query *pq)
@@ -283,11 +327,16 @@ agent_pending_query *agent_query(
     strbuf *query, void **out, int *outlen,
     void (*callback)(void *, void *, int), void *callback_ctx)
 {
-    agent_pending_query *pq = named_pipe_agent_query(
-        query, out, outlen, callback, callback_ctx);
-    if (pq || *out)
-        return pq;
+    if (pageant_exists()) {
+        agent_pending_query *pq = named_pipe_agent_query(
+            query, out, outlen, callback, callback_ctx);
+        if (pq || *out)
+            return pq;
 
-    wm_copydata_agent_query(query, out, outlen);
-    return NULL;
+        wm_copydata_agent_query(query, out, outlen);
+        return NULL;
+    }
+
+    return openssh_pipe_agent_query(
+        query, out, outlen, callback, callback_ctx);
 }
