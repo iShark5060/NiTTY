@@ -737,6 +737,8 @@ void handle_wait_list_free(HandleWaitList *hwl);
  */
 char *agent_mutex_name(void);
 char *agent_named_pipe_name(void);
+/* Pageant's own window or named pipe. Not the Windows OpenSSH agent. */
+bool pageant_exists(void);
 
 /*
  * Exports from serial.c.

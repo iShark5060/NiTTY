@@ -57,13 +57,13 @@ add_sources_from_current_dir(network
 add_sources_from_current_dir(sshcommon
   noise.c)
 add_sources_from_current_dir(sshclient
-  agent-client.c gss.c sharing.c)
+  agent-client.c nitty_openssh_agent.c gss.c sharing.c)
 add_sources_from_current_dir(sftpclient
   sftp.c)
 add_sources_from_current_dir(otherbackends
   serial.c)
 add_sources_from_current_dir(agent
-  agent-client.c)
+  agent-client.c nitty_openssh_agent.c)
 add_sources_from_current_dir(guiterminal
   dialog.c controls.c config.c printing.c jump-list.c sizetip.c
   nitty_config_theme.c nitty_autologin.c nitty_termfont.c)
@@ -202,6 +202,11 @@ if(HAVE_CONPTY)
 else()
   message("ConPTY not available; cannot build Windows nterm")
 endif()
+
+add_executable(test_nitty_openssh_agent
+  test/test_nitty_openssh_agent.c)
+target_compile_definitions(test_nitty_openssh_agent PRIVATE
+  NITTY_OPENSSH_AGENT_PURE)
 
 add_executable(test_split_into_argv
   test/test_split_into_argv.c)

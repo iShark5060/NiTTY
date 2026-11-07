@@ -1908,7 +1908,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     /*
      * Find out if Pageant is already running.
      */
-    already_running = agent_exists();
+    already_running = pageant_exists();
 
     /*
      * If it isn't, we're going to be the primary Pageant that stays
